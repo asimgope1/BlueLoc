@@ -12,6 +12,8 @@ import {
   PermissionsAndroid,
   NativeEventEmitter,
   NativeModules,
+  KeyboardAvoidingView,
+  ScrollView,
 } from 'react-native';
 import BleManager from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
@@ -24,6 +26,7 @@ const BluetoothScanner = () => {
   const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
   const [readValue, setReadValue] = useState('');
   const [writeValue, setWriteValue] = useState('');
+  const [notificationBuffer, setNotificationBuffer] = useState(0);
 
   useEffect(() => {
     BleManager.start({showAlert: false});
@@ -194,7 +197,7 @@ const BluetoothScanner = () => {
           }
           // 5. Handle other data types or default case
           else {
-            parsedData = `Unknown data type or default handling for ${readData}`;
+            parsedData = `${readData}`;
           }
 
           setReadValue(parsedData.toString());
@@ -208,6 +211,53 @@ const BluetoothScanner = () => {
     },
     [connectedDevice],
   );
+
+  const startNotification = useCallback(async () => {
+    if (selectedCharacteristic && connectedDevice) {
+      try {
+        console.log(
+          `Attempting to start notification for characteristic ${selectedCharacteristic.characteristic} from service ${selectedCharacteristic.service}with buffer ${notificationBuffer}`,
+        );
+        await BleManager.startNotificationUseBuffer(
+          connectedDevice,
+          selectedCharacteristic.service,
+          selectedCharacteristic.characteristic,
+          // 1234,
+          notificationBuffer,
+        );
+        console.log('Notification started');
+      } catch (error) {
+        console.warn('Error starting notification:', error);
+        Alert.alert('Error', 'Failed to start notification.');
+      }
+    } else {
+      Alert.alert(
+        'Error',
+        'No characteristic selected or device not connected.',
+      );
+    }
+  }, [connectedDevice, selectedCharacteristic, notificationBuffer]);
+
+  const stopNotification = useCallback(async () => {
+    if (selectedCharacteristic && connectedDevice) {
+      try {
+        await BleManager.stopNotification(
+          connectedDevice,
+          selectedCharacteristic.service,
+          selectedCharacteristic.characteristic,
+        );
+        console.log('Notification stopped');
+      } catch (error) {
+        console.warn('Error stopping notification:', error);
+        Alert.alert('Error', 'Failed to stop notification.');
+      }
+    } else {
+      Alert.alert(
+        'Error',
+        'No characteristic selected or device not connected.',
+      );
+    }
+  }, [connectedDevice, selectedCharacteristic]);
 
   // Convert a hexadecimal string to an ArrayBuffer
   function hexStringToByteArray(hexString) {
@@ -228,6 +278,12 @@ const BluetoothScanner = () => {
     return intArray.map(value => value & 255);
   }
 
+  const textStringToByteArray = textString => {
+    const encoder = new TextEncoder();
+    const uint8Array = encoder.encode(textString);
+    return Array.from(uint8Array);
+  };
+
   // Write data to a characteristic
   const writeCharacteristic = useCallback(async () => {
     if (selectedCharacteristic && writeValue && connectedDevice) {
@@ -244,6 +300,9 @@ const BluetoothScanner = () => {
         ) {
           // Array of integers
           byteArray = intArrayToByteArray(writeValue);
+        } else if (typeof writeValue === 'string') {
+          // Text string
+          byteArray = textStringToByteArray(writeValue);
         } else {
           throw new Error('Invalid writeValue format');
         }
@@ -251,12 +310,12 @@ const BluetoothScanner = () => {
         console.log('Byte Array:', byteArray);
 
         // Write to BLE characteristic
-        await BleManager.write(
+        await BleManager.writeWithoutResponse(
           connectedDevice,
           selectedCharacteristic.service,
           selectedCharacteristic.characteristic,
           byteArray,
-          20, // maxByteSize, optional
+          512, // maxByteSize, optional
         );
         Alert.alert('Success', 'Value written successfully');
       } catch (error) {
@@ -275,6 +334,9 @@ const BluetoothScanner = () => {
         setConnectedDevice(null);
         setServices([]);
         setCharacteristics([]);
+        setWriteValue('');
+        setReadValue('');
+        setSelectedCharacteristic(null);
         Alert.alert(
           'Disconnected',
           `Successfully disconnected from device ${connectedDevice}`,
@@ -287,35 +349,49 @@ const BluetoothScanner = () => {
   }, [connectedDevice]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Bluetooth Scanner</Text>
-      <Button title="Scan for Devices" onPress={scanAndConnect} />
-      <FlatList
-        data={devices}
-        renderItem={({item}) => (
-          <View style={styles.deviceContainer}>
-            <Text style={styles.device}>{`Device found: ${item.name}`}</Text>
-            {connectedDevice === item.id ? (
-              <TouchableOpacity
-                style={styles.button}
-                onPress={disconnectFromDevice}>
-                <Text style={styles.buttonText}>Disconnect</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => connectToDevice(item.id)}>
-                <Text style={styles.buttonText}>Connect</Text>
-              </TouchableOpacity>
-            )}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{flex: 1}}>
+      <ScrollView contentContainerStyle={{flexGrow: 1}}>
+        <View style={styles.container}>
+          <Text style={styles.header}>Bluetooth Scanner</Text>
+          <Button title="Scan for Devices" onPress={scanAndConnect} />
+          <View
+            style={{
+              height: 200,
+              overflow: 'scroll',
+              backgroundColor: 'white',
+              borderColor: 'black',
+              borderWidth: 1,
+              borderRadius: 10,
+            }}>
+            <FlatList
+              data={devices}
+              renderItem={({item}) => (
+                <View style={styles.deviceContainer}>
+                  <Text style={styles.device}>Device found:{item.name}</Text>
+                  {connectedDevice === item.id ? (
+                    <TouchableOpacity
+                      style={styles.button}
+                      onPress={disconnectFromDevice}>
+                      <Text style={styles.buttonText}>Disconnect</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.button}
+                      onPress={() => connectToDevice(item.id)}>
+                      <Text style={styles.buttonText}>Connect</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              keyExtractor={item => item.id}
+            />
           </View>
-        )}
-        keyExtractor={item => item.id}
-      />
-      {connectedDevice && (
-        <>
-          {/* <Text style={styles.header}>Services</Text> */}
-          {/* <FlatList
+          {connectedDevice && (
+            <>
+              {/* <Text style={styles.header}>Services</Text> */}
+              {/* <FlatList
             data={services}
             renderItem={({item}) => (
               <TouchableOpacity
@@ -326,54 +402,106 @@ const BluetoothScanner = () => {
             )}
             keyExtractor={item => item.uuid}
           /> */}
-          <Text style={styles.header}>Characteristics</Text>
-          <FlatList
-            data={characteristics}
-            renderItem={({item}) => (
-              <View style={styles.characteristicContainer}>
-                <Text
-                  style={
-                    styles.device
-                  }>{`Characteristic: ${item.characteristic}`}</Text>
+              <Text style={styles.header}>Characteristics</Text>
+              <View
+                style={{
+                  height: 200,
+                  overflow: 'scroll',
+                  backgroundColor: 'white',
+                  borderColor: 'black',
+                  borderWidth: 1,
+                  borderRadius: 10,
+                  padding: 5,
+                }}>
+                <FlatList
+                  data={characteristics}
+                  renderItem={({item}) => (
+                    <View style={styles.characteristicContainer}>
+                      <Text style={styles.device}>
+                        Characteristic: {item.characteristic}
+                      </Text>
 
-                {item.properties.Read && (
-                  <TouchableOpacity
-                    style={styles.button}
-                    onPress={() => {
-                      setSelectedCharacteristic(item);
-                      readCharacteristic(item);
-                    }}>
-                    <Text style={styles.buttonText}>Read</Text>
-                  </TouchableOpacity>
-                )}
+                      {item.properties.Read && (
+                        <TouchableOpacity
+                          style={styles.button}
+                          onPress={() => {
+                            setSelectedCharacteristic(item);
+                            readCharacteristic(item);
+                          }}>
+                          <Text style={styles.buttonText}>Read</Text>
+                        </TouchableOpacity>
+                      )}
 
-                {item.properties.Write && (
-                  <TouchableOpacity
-                    style={styles.button}
-                    onPress={() => {
-                      setSelectedCharacteristic(item);
-                    }}>
-                    <Text style={styles.buttonText}>Write</Text>
-                  </TouchableOpacity>
-                )}
+                      {item.properties.Write && (
+                        <TouchableOpacity
+                          style={styles.button}
+                          onPress={() => {
+                            setSelectedCharacteristic(item);
+                            setReadValue(null);
+                          }}>
+                          <Text style={styles.buttonText}>Write</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                  keyExtractor={item => item.characteristic}
+                />
               </View>
-            )}
-            keyExtractor={item => item.characteristic}
-          />
+              {selectedCharacteristic && readValue === null && (
+                <>
+                  {/* <View style={styles.connectedContainer}>
+                <Text style={styles.connectedText}>
+                  Connected to: {connectedDevice}
+                </Text>
 
-          <Text style={styles.header}>Characteristic Value</Text>
-          <Text>{`Read Value: ${readValue}`}</Text>
-          <TextInput
-            style={styles.input}
-            placeholderTextColor={'gray'}
-            placeholder="Enter value to write"
-            value={writeValue}
-            onChangeText={setWriteValue}
-          />
-          <Button title="Write Characteristic" onPress={writeCharacteristic} />
-        </>
-      )}
-    </View>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Notification Buffer Size"
+                  keyboardType="numeric"
+                  onChangeText={text => setNotificationBuffer(Number(text))}
+                  value={notificationBuffer.toString()}
+                />
+                <Button
+                  title="Start Notification with Buffer"
+                  onPress={startNotification}
+                />
+
+                <Button title="Stop Notification" onPress={stopNotification} />
+              </View> */}
+                  <Text style={styles.header}>Characteristic Value</Text>
+
+                  <TextInput
+                    style={styles.input}
+                    placeholderTextColor={'gray'}
+                    placeholder="Enter value to write"
+                    value={writeValue}
+                    onChangeText={setWriteValue}
+                  />
+                  <Button
+                    title="Write Characteristic"
+                    onPress={writeCharacteristic}
+                  />
+                </>
+              )}
+              {selectedCharacteristic && readValue && (
+                <View
+                  style={{
+                    padding: 8,
+                    backgroundColor: 'black',
+                  }}>
+                  <Text
+                    style={{
+                      color: 'white',
+                    }}>
+                    Read Value: {readValue}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -396,9 +524,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#ccc',
   },
+
   device: {
     fontSize: 16,
-    color: 'black',
+    color: 'red',
   },
   button: {
     padding: 8,
