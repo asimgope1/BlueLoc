@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import BleManager from 'react-native-ble-manager';
 import { Buffer } from 'buffer';
-import LinearGradient from 'react-native-linear-gradient';
+import DropDownPicker from 'react-native-dropdown-picker';
 
 const BluetoothScanner = () => {
   const [devices, setDevices] = useState([]);
@@ -29,7 +29,8 @@ const BluetoothScanner = () => {
   const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
   const [readValue, setReadValue] = useState('');
   const [writeValue, setWriteValue] = useState('');
-  const [notificationBuffer, setNotificationBuffer] = useState(0);
+  const [charDropdownOpen, setCharDropdownOpen] = useState(false);
+
   const { width: WIDTH, height: HEIGHT } = Dimensions.get('window');
 
   useEffect(() => {
@@ -149,15 +150,7 @@ const BluetoothScanner = () => {
     }
   }, []);
 
-  const handleServiceSelect = useCallback(
-    serviceUUID => {
-      const serviceCharacteristics = characteristics.filter(
-        char => char.service === serviceUUID,
-      );
-      setCharacteristics(serviceCharacteristics);
-    },
-    [characteristics],
-  );
+
 
   const readCharacteristic = useCallback(
     async characteristic => {
@@ -216,111 +209,90 @@ const BluetoothScanner = () => {
     [connectedDevice],
   );
 
-  const startNotification = useCallback(async () => {
-    if (selectedCharacteristic && connectedDevice) {
-      try {
-        console.log(
-          `Attempting to start notification for characteristic ${selectedCharacteristic.characteristic} from service ${selectedCharacteristic.service}with buffer ${notificationBuffer}`,
-        );
-        await BleManager.startNotificationUseBuffer(
-          connectedDevice,
-          selectedCharacteristic.service,
-          selectedCharacteristic.characteristic,
-          // 1234,
-          notificationBuffer,
-        );
-        console.log('Notification started');
-      } catch (error) {
-        console.warn('Error starting notification:', error);
-        Alert.alert('Error', 'Failed to start notification.');
-      }
-    } else {
-      Alert.alert(
-        'Error',
-        'No characteristic selected or device not connected.',
-      );
-    }
-  }, [connectedDevice, selectedCharacteristic, notificationBuffer]);
-
-  const stopNotification = useCallback(async () => {
-    if (selectedCharacteristic && connectedDevice) {
-      try {
-        await BleManager.stopNotification(
-          connectedDevice,
-          selectedCharacteristic.service,
-          selectedCharacteristic.characteristic,
-        );
-        console.log('Notification stopped');
-      } catch (error) {
-        console.warn('Error stopping notification:', error);
-        Alert.alert('Error', 'Failed to stop notification.');
-      }
-    } else {
-      Alert.alert(
-        'Error',
-        'No characteristic selected or device not connected.',
-      );
-    }
-  }, [connectedDevice, selectedCharacteristic]);
-
-  // Convert a hexadecimal string to an ArrayBuffer
-  function hexStringToByteArray(hexString) {
-    const hex = hexString.replace(/\s+/g, ''); // Remove spaces
-    const length = hex.length / 2;
-    const byteArray = [];
-
-    for (let i = 0; i < length; i++) {
-      byteArray.push(parseInt(hex.substr(i * 2, 2), 16));
-    }
-
-    return byteArray;
-  }
-
-  // Convert an array of integers to an ArrayBuffer
-  function intArrayToByteArray(intArray) {
-    // Ensure all integers are in the 0-255 range
-    return intArray.map(value => value & 255);
-  }
-
-  const textStringToByteArray = textString => {
-    const encoder = new TextEncoder();
-    const uint8Array = encoder.encode(textString);
-    return Array.from(uint8Array);
-  };
-
-  // Write data to a characteristic
   const writeCharacteristic = useCallback(async () => {
     if (selectedCharacteristic && writeValue && connectedDevice) {
       try {
         let byteArray;
 
-        // Check and convert writeValue based on its type
-        if (/^[0-9A-Fa-f]+$/.test(writeValue)) {
-          // Hexadecimal string
-          byteArray = hexStringToByteArray(writeValue);
-        } else if (
-          Array.isArray(writeValue) &&
-          writeValue.every(Number.isInteger)
-        ) {
-          // Array of integers
-          byteArray = intArrayToByteArray(writeValue);
-        } else if (typeof writeValue === 'string') {
-          // Text string - Convert to ASCII code (bytes)
-          byteArray = textStringToAsciiArray(writeValue);
-        } else {
-          throw new Error('Invalid writeValue format');
+        byteArray = textStringToAsciiArray(writeValue.toString());
+        // Handle different characteristics conversions
+        if (selectedCharacteristic.characteristic === "0008") {
+          // Convert port value to ASCII byte array
+          byteArray = textStringToAsciiArray(writeValue.toString());
         }
 
-        console.log('Byte Array (ASCII):', byteArray);
+        else if (selectedCharacteristic.characteristic === "0009") {
+          // Convert baud rate value to ASCII byte array
+          byteArray = textStringToAsciiArray(writeValue.toString());
+        } else if (selectedCharacteristic.characteristic === "0007") {
+          // Convert the numeric value to its ASCII byte representation
+          byteArray = textStringToAsciiArray(writeValue.toString());
+        }
 
-        // Write to BLE characteristic
-        await BleManager.writeWithoutResponse(
-          connectedDevice,
-          selectedCharacteristic.service,
-          selectedCharacteristic.characteristic,
-          byteArray,
-          512 // maxByteSize, optional
-        );
+        // Ensure byteArray is defined and is an array
+        if (!byteArray || !Array.isArray(byteArray)) {
+          throw new Error('Invalid byteArray, unable to proceed with writing characteristic');
+        }
+
+
+        const writeToCharacteristic = async (device, service, characteristic, data) => {
+          await BleManager.writeWithoutResponse(device, service, characteristic, data, 512);
+        };
+
+        const characteristicMap = {
+          "0001": { next: "0002", maxBytes: 19 },
+          "0002": { next: "0003", maxBytes: 19 },
+          "0003": { next: null, maxBytes: 19 },
+          "0004": { next: "0005", maxBytes: 19 },
+          "0005": { next: null, maxBytes: 19 },
+          "0006": { next: null, maxBytes: 19 },
+          "0007": { next: null, maxBytes: 19, defaultValue: [4] },
+          "0008": { next: null, maxBytes: 19 },
+          "0009": { next: null, maxBytes: 19 },
+        };
+
+        const writeDataWithOverflow = async (startingCharacteristic, data) => {
+          let currentCharacteristic = startingCharacteristic;
+          let offset = 0;
+
+          while (currentCharacteristic && offset < data.length) {
+            const { next, maxBytes } = characteristicMap[currentCharacteristic];
+            const chunk = data.slice(offset, offset + maxBytes);
+
+            console.log(`Writing to characteristic ${currentCharacteristic}:`, chunk);
+            await writeToCharacteristic(
+              connectedDevice,
+              selectedCharacteristic.service,
+              currentCharacteristic,
+              chunk
+            );
+
+            currentCharacteristic = next;
+            offset += maxBytes;
+          }
+
+          if (offset < data.length) {
+            throw new Error('Data size exceeds available characteristic storage');
+          }
+        };
+
+        const characteristic = selectedCharacteristic.characteristic;
+        if (characteristic === "0001" || characteristic === "0002" || characteristic === "0003") {
+          await writeDataWithOverflow("0001", byteArray);
+        } else if (characteristic === "0004" || characteristic === "0005") {
+          await writeDataWithOverflow("0004", byteArray);
+        } else if (characteristic === "0006") {
+          await writeDataWithOverflow("0006", byteArray);
+        } else if (characteristic === "0007") {
+          await writeDataWithOverflow("0007", byteArray);
+        } else if (characteristic === "0008") {
+          await writeDataWithOverflow("0008", byteArray);
+        } else if (characteristic === "0009") {
+          await writeDataWithOverflow("0009", byteArray);
+        } else {
+          throw new Error('Unsupported characteristic');
+        }
+
         Alert.alert('Success', 'Value written successfully');
       } catch (error) {
         console.warn('Error writing characteristic:', error);
@@ -335,23 +307,6 @@ const BluetoothScanner = () => {
   function textStringToAsciiArray(textString) {
     return Array.from(textString).map(char => char.charCodeAt(0));
   }
-
-  // Convert a hexadecimal string to byte array
-  function hexStringToByteArray(hexString) {
-    const hex = hexString.replace(/\s+/g, ''); // Remove spaces
-    const byteArray = [];
-    for (let i = 0; i < hex.length; i += 2) {
-      -
-        byteArray.push(parseInt(hex.substr(i * 2, 2), 16));
-    }
-    return byteArray;
-  }
-
-  // Convert an array of integers to byte array
-  function intArrayToByteArray(intArray) {
-    return intArray.map(value => value & 255);
-  }
-
 
   const disconnectFromDevice = useCallback(async () => {
     if (connectedDevice) {
@@ -451,21 +406,14 @@ const BluetoothScanner = () => {
                 )}
                 keyExtractor={item => item.id}
               />
+              <TouchableOpacity
+                style={styles.button}
+                onPress={disconnectFromDevice}>
+                <Text style={styles.buttonText}>Disconnect</Text>
+              </TouchableOpacity>
             </View>
             {connectedDevice && (
               <>
-                {/* <Text style={styles.header}>Services</Text> */}
-                {/* <FlatList
-            data={services}
-            renderItem={({item}) => (
-              <TouchableOpacity
-                style={styles.button}
-                onPress={() => handleServiceSelect(item.uuid)}>
-                <Text style={styles.buttonText}>{`Service: ${item.uuid}`}</Text>
-              </TouchableOpacity>
-            )}
-            keyExtractor={item => item.uuid}
-          /> */}
                 <Text style={styles.header}>Characteristics</Text>
                 <View
                   style={{
@@ -513,37 +461,64 @@ const BluetoothScanner = () => {
                 </View>
                 {selectedCharacteristic && readValue === null && (
                   <>
-                    {/* <View style={styles.connectedContainer}>
-                <Text style={styles.connectedText}>
-                  Connected to: {connectedDevice}
-                </Text>
 
-                <TextInput
-                  style={styles.input}
-                  placeholder="Notification Buffer Size"
-                  keyboardType="numeric"
-                  onChangeText={text => setNotificationBuffer(Number(text))}
-                  value={notificationBuffer.toString()}
-                />
-                <Button
-                  title="Start Notification with Buffer"
-                  onPress={startNotification}
-                />
-
-                <Button title="Stop Notification" onPress={stopNotification} />
-              </View> */}
                     <Text style={styles.header}>Characteristic Value</Text>
-
-                    <TextInput
-                      style={styles.input}
-                      placeholderTextColor={'gray'}
-                      placeholder="Enter value to write"
+                    {selectedCharacteristic?.characteristic === "0007" && <DropDownPicker
+                      open={charDropdownOpen}
                       value={writeValue}
-                      onChangeText={setWriteValue}
-                    />
+                      items={[
+                        { label: '4', value: 4 },
+                        { label: '8', value: 8 },
+                        { label: '12', value: 12 },
+                        { label: '16', value: 16 },
+                      ]}
+                      setOpen={setCharDropdownOpen}
+                      setValue={(value) => {
+                        setWriteValue(value); // Directly set the selected value
+                      }}
+                      style={styles.input}
+                    />}
+
+                    {selectedCharacteristic?.characteristic === "0008" && (
+                      <TextInput
+                        keyboardType="numeric"
+                        placeholder="Enter Port Value"
+                        placeholderTextColor={'grey'}
+                        value={writeValue}
+                        maxLength={4}
+
+                        onChangeText={setWriteValue}
+                        style={styles.input}
+                      />
+                    )}
+                    {selectedCharacteristic?.characteristic === "0009" && (
+                      <TextInput
+                        keyboardType="numeric"
+                        placeholder="Enter data Rate"
+                        placeholderTextColor={'grey'}
+                        value={writeValue}
+                        maxLength={4}
+                        onChangeText={(text) => {
+                          // Ensure the value is numeric before updating state
+                          // if (/^\d*$/.test(text)) { // Allow only numeric input
+                          setWriteValue(text);
+                          // }
+                        }}
+                        style={styles.input}
+                      />
+                    )}
+                    {selectedCharacteristic?.characteristic !== "0008" && selectedCharacteristic?.characteristic !== "0009" && selectedCharacteristic?.characteristic !== "0007" && (
+                      <TextInput
+                        style={styles.input}
+                        placeholderTextColor={'gray'}
+                        placeholder="Enter value to write"
+                        value={writeValue}
+                        onChangeText={(txt) => setWriteValue(txt)}
+                      />
+                    )}
                     <Button
                       title="Write Characteristic"
-                      onPress={writeCharacteristic}
+                      onPress={() => writeCharacteristic()}
                     />
                   </>
                 )}
