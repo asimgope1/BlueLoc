@@ -6,6 +6,7 @@ import BLEScanner from './BLEScanner';
 import MapView from './MapView';
 import IndoorMapScreen from './IndoorMapScreen';
 import NearbyDevices from './NearbyDevices';
+import BLEScan from './BLEScan';
 
 const Stack = createStackNavigator();
 
@@ -13,10 +14,15 @@ const App = () => {
   return (
     <NavigationContainer>
       <SafeAreaView style={styles.container}>
-        <Stack.Navigator initialRouteName="BLEScanner">
+        <Stack.Navigator initialRouteName="BLEScan">
           <Stack.Screen
             name="BLEScanner"
             component={BLEScanner}
+            options={{headerShown: false}}
+          />
+          <Stack.Screen
+            name="BLEScan"
+            component={BLEScan}
             options={{headerShown: false}}
           />
           <Stack.Screen name="MapView" component={MapView} />
