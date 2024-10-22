@@ -48,7 +48,7 @@ const BLEScan = () => {
                 if (
                     Object.values(granted).some((permission) => permission !== PermissionsAndroid.RESULTS.GRANTED)
                 ) {
-                    Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
+                    // Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
                 }
             }
         };
@@ -144,19 +144,23 @@ const BLEScan = () => {
         async (deviceId) => {
             try {
                 const servicesData = await BleManager.retrieveServices(deviceId);
-                console.log('Services:', servicesData.services); // Log services
+                console.log('Services Data:', servicesData); // Log the complete services data
+
                 const filteredCharacteristics = servicesData.characteristics.filter(
                     (char) => char.service !== '1800' && char.service !== '1801'
                 );
                 setServices(servicesData.services);
                 setCharacteristics(filteredCharacteristics);
-                console.log('Characteristics:', filteredCharacteristics); // Log characteristics
+
+                console.log('Services:', servicesData.services); // Log just the services
+                console.log('Characteristics:', filteredCharacteristics); // Log filtered characteristics
             } catch (error) {
                 console.warn('Error fetching services:', error);
             }
         },
         []
     );
+
     console.log('devices', devices)
     return (
         <View style={styles.container}>
@@ -182,7 +186,21 @@ const BLEScan = () => {
                                         <Text style={styles.rescanText}>Rescan</Text>
                                     </TouchableOpacity>
                                 )}
+                                {isLoading ? (
+                                    <Modal
+                                        transparent={true}
+                                        animationType="fade"
+                                        visible={isLoading}
+                                        onRequestClose={() => setIsLoading(false)} // Optional: Handle back button
+                                    >
+                                        <View style={styles.modalOverlay}>
+                                            <ActivityIndicator size="large" color="#007AFF" />
+                                        </View>
+                                    </Modal>
+                                ) : <></>}
                             </View>
+
+
 
                             <DeviceList
                                 devices={devices}
@@ -191,23 +209,13 @@ const BLEScan = () => {
                                 connectedDevice={connectedDevice} // Pass the connected device
                             />
 
+
                         </>
                     )}
                     {isWriting && <ActivityIndicator size="large" color="#0000ff" />}
                 </ScrollView>
 
-                {isLoading ? (
-                    <Modal
-                        transparent={true}
-                        animationType="fade"
-                        visible={isLoading}
-                        onRequestClose={() => setIsLoading(false)} // Optional: Handle back button
-                    >
-                        <View style={styles.modalOverlay}>
-                            <ActivityIndicator size="large" color="#007AFF" />
-                        </View>
-                    </Modal>
-                ) : <></>}
+
             </KeyboardAvoidingView>
         </View>
     );

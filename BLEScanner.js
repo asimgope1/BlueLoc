@@ -51,10 +51,10 @@ const BluetoothScanner = () => {
           granted['android.permission.BLUETOOTH_CONNECT'] !==
           PermissionsAndroid.RESULTS.GRANTED
         ) {
-          Alert.alert(
-            'Permission Required',
-            'Please grant all permissions to use Bluetooth features.',
-          );
+          // Alert.alert(
+          //   'Permission Required',
+          //   'Please grant all permissions to use Bluetooth features.',
+          // );
         }
       }
     };
@@ -171,6 +171,7 @@ const BluetoothScanner = () => {
 
           // Convert the read data to Buffer
           const buffer = Buffer.from(readData);
+
 
           // Optionally, process the buffer based on data type
           let parsedData;
