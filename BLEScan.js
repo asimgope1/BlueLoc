@@ -9,7 +9,6 @@ import {
     NativeEventEmitter,
     NativeModules,
     ActivityIndicator,
-    Button,
     TouchableOpacity,
     KeyboardAvoidingView,
     StatusBar,
@@ -31,7 +30,6 @@ const BLEScan = () => {
     const [isWriting, setIsWriting] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
-
     const { width: WIDTH } = Dimensions.get('window');
 
     useEffect(() => {
@@ -48,7 +46,7 @@ const BLEScan = () => {
                 if (
                     Object.values(granted).some((permission) => permission !== PermissionsAndroid.RESULTS.GRANTED)
                 ) {
-                    // Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
+                    Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
                 }
             }
         };
@@ -112,48 +110,40 @@ const BLEScan = () => {
 
     const connectToDevice = useCallback(
         async (device) => {
-            const deviceId = device.id; // Extract the device ID
-            setIsLoading(true); // Set loading state to true
+            const deviceId = device.id;
+            setIsLoading(true);
             try {
                 if (connectedDevice === deviceId) {
-                    // Already connected, so disconnect
                     await BleManager.disconnect(deviceId);
-                    console.log('Disconnected from device:', deviceId);
                     setConnectedDevice(null);
                     setServices([]);
                     setCharacteristics([]);
+                    fetchServices(deviceId);
                 } else {
                     await BleManager.connect(deviceId);
-                    console.log('Connected to device:', deviceId);
                     setConnectedDevice(deviceId);
                     fetchServices(deviceId);
                     Alert.alert('Connected', `Successfully connected to device ${deviceId}`);
                 }
             } catch (error) {
-                console.warn('Error connecting to device:', error);
                 Alert.alert('Error', 'Failed to connect to device.');
             } finally {
-                setIsLoading(false); // Set loading state to false regardless of success or failure
+                setIsLoading(false);
             }
         },
-        [connectedDevice] // Dependency array to ensure latest connectedDevice state is used
+        [connectedDevice]
     );
-
 
     const fetchServices = useCallback(
         async (deviceId) => {
             try {
                 const servicesData = await BleManager.retrieveServices(deviceId);
-                console.log('Services Data:', servicesData); // Log the complete services data
-
                 const filteredCharacteristics = servicesData.characteristics.filter(
                     (char) => char.service !== '1800' && char.service !== '1801'
                 );
                 setServices(servicesData.services);
+                console.log('servicesData.services', servicesData.services, 'filteredCharacteristics', filteredCharacteristics)
                 setCharacteristics(filteredCharacteristics);
-
-                console.log('Services:', servicesData.services); // Log just the services
-                console.log('Characteristics:', filteredCharacteristics); // Log filtered characteristics
             } catch (error) {
                 console.warn('Error fetching services:', error);
             }
@@ -161,20 +151,52 @@ const BLEScan = () => {
         []
     );
 
-    console.log('devices', devices)
+
+    const readCharacteristic = async (serviceUUID, characteristicUUID) => {
+        try {
+            const value = await connectedDevice.readCharacteristicForService(
+                serviceUUID,
+                characteristicUUID
+            );
+            return value ? value.value : null;
+        } catch (error) {
+            console.error('Failed to read characteristic:', error);
+            return null;
+        }
+    };
+
+    // Write characteristic value
+    const writeCharacteristic = async (serviceUUID, characteristicUUID, inputValue) => {
+        console.log('Attempting to write characteristic');
+        console.log('serviceUUID:', serviceUUID);
+        console.log('characteristicUUID:', characteristicUUID);
+        console.log('inputValue:', inputValue);
+
+        try {
+            const encodedValue = Buffer.from(inputValue).toString('base64'); // Encode input value to Base64
+            console.log('Encoded value:', encodedValue);
+
+            await connectedDevice.writeCharacteristicWithResponseForService(
+                serviceUUID,
+                characteristicUUID,
+                encodedValue
+            );
+
+            console.log('Successfully written:', inputValue);
+        } catch (error) {
+            console.error('Failed to write characteristic:', error);
+        }
+    };
+
+
     return (
         <View style={styles.container}>
-            {/* StatusBar for custom appearance */}
             <StatusBar barStyle="light-content" backgroundColor="#007AFF" />
-
-            {/* KeyboardAvoidingView to handle keyboard interactions */}
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardAvoidingView}
             >
-                {/* ScrollView to allow scrolling if needed */}
                 <ScrollView contentContainerStyle={styles.scrollViewContent}>
-                    {/* Main content */}
                     {isSearching ? (
                         <RadarAnimation />
                     ) : (
@@ -186,36 +208,30 @@ const BLEScan = () => {
                                         <Text style={styles.rescanText}>Rescan</Text>
                                     </TouchableOpacity>
                                 )}
-                                {isLoading ? (
-                                    <Modal
-                                        transparent={true}
-                                        animationType="fade"
-                                        visible={isLoading}
-                                        onRequestClose={() => setIsLoading(false)} // Optional: Handle back button
-                                    >
-                                        <View style={styles.modalOverlay}>
-                                            <ActivityIndicator size="large" color="#007AFF" />
-                                        </View>
-                                    </Modal>
-                                ) : <></>}
                             </View>
-
-
 
                             <DeviceList
                                 devices={devices}
-                                onConnect={connectToDevice} // Pass the updated connectToDevice function
-                                isConnecting={scanning}
-                                connectedDevice={connectedDevice} // Pass the connected device
+                                onConnect={connectToDevice}
+                                onViewDetails={(device) => Alert.alert('Device Details', JSON.stringify(device))}
+                                onRead={readCharacteristic}
+                                onWrite={writeCharacteristic}
+                                isConnecting={isLoading}
+                                connectedDevice={connectedDevice}
+                                services={services}
+                                characteristics={characteristics}
                             />
-
-
+                            {isWriting && <ActivityIndicator size="large" color="#0000ff" />}
                         </>
                     )}
-                    {isWriting && <ActivityIndicator size="large" color="#0000ff" />}
+                    {isLoading && (
+                        <Modal transparent={true} animationType="fade" visible={isLoading}>
+                            <View style={styles.modalOverlay}>
+                                <ActivityIndicator size="large" color="#007AFF" />
+                            </View>
+                        </Modal>
+                    )}
                 </ScrollView>
-
-
             </KeyboardAvoidingView>
         </View>
     );
@@ -257,6 +273,12 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#007AFF',
         fontWeight: 'bold',
+    },
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
 });
 
