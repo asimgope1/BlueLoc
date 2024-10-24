@@ -15,10 +15,12 @@ import {
     Platform,
     ScrollView,
     Modal,
+    TextInput,
 } from 'react-native';
 import DeviceList from './DeviceList';
-import RadarAnimation from './RadarAnimation'; // Import RadarAnimation component
+import RadarAnimation from './RadarAnimation';
 import BleManager from 'react-native-ble-manager';
+import { Buffer } from 'buffer';
 
 const BLEScan = () => {
     const [scanning, setScanning] = useState(false);
@@ -27,67 +29,20 @@ const BLEScan = () => {
     const [connectedDevice, setConnectedDevice] = useState(null);
     const [services, setServices] = useState([]);
     const [characteristics, setCharacteristics] = useState([]);
-    const [isWriting, setIsWriting] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [inputValue, setInputValue] = useState(''); // Input value for writing
+    const [selectedCharacteristic, setSelectedCharacteristic] = useState(null); // Selected characteristic for writing
 
     const { width: WIDTH } = Dimensions.get('window');
 
     useEffect(() => {
         BleManager.start({ showAlert: false });
-
-        const requestPermissions = async () => {
-            if (Platform.OS === 'android') {
-                const granted = await PermissionsAndroid.requestMultiple([
-                    PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-                    PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-                    PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-                ]);
-
-                if (
-                    Object.values(granted).some((permission) => permission !== PermissionsAndroid.RESULTS.GRANTED)
-                ) {
-                    Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
-                }
-            }
-        };
-
         requestPermissions();
-
-        const handleDiscoverPeripheral = (peripheral) => {
-            if (peripheral && peripheral.name) {
-                setDevices((prevDevices) => {
-                    if (!prevDevices.find((d) => d.id === peripheral.id)) {
-                        return [...prevDevices, peripheral];
-                    }
-                    return prevDevices;
-                });
-            }
-        };
-
-        const handleStopScan = () => {
-            console.log('Scan stopped');
-            setScanning(false);
-            setIsSearching(false);
-        };
-
-        const handleDisconnectedPeripheral = (data) => {
-            Alert.alert('Disconnected', `Disconnected from device ${data.peripheral}`);
-            setConnectedDevice(null);
-            setServices([]);
-            setCharacteristics([]);
-        };
-
         const bleManagerEmitter = new NativeEventEmitter(NativeModules.BleManager);
 
-        const discoverListener = bleManagerEmitter.addListener(
-            'BleManagerDiscoverPeripheral',
-            handleDiscoverPeripheral
-        );
+        const discoverListener = bleManagerEmitter.addListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
         const stopListener = bleManagerEmitter.addListener('BleManagerStopScan', handleStopScan);
-        const disconnectListener = bleManagerEmitter.addListener(
-            'BleManagerDisconnectPeripheral',
-            handleDisconnectedPeripheral
-        );
+        const disconnectListener = bleManagerEmitter.addListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral);
 
         return () => {
             discoverListener.remove();
@@ -96,98 +51,134 @@ const BLEScan = () => {
         };
     }, []);
 
+    const requestPermissions = async () => {
+        if (Platform.OS === 'android') {
+            const granted = await PermissionsAndroid.requestMultiple([
+                PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+                PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+            ]);
+            if (Object.values(granted).some(permission => permission !== PermissionsAndroid.RESULTS.GRANTED)) {
+                Alert.alert('Permission Required', 'Please grant all permissions to use Bluetooth features.');
+            }
+        }
+    };
+
+    const handleDiscoverPeripheral = peripheral => {
+        if (peripheral && peripheral.name) {
+            setDevices(prevDevices => {
+                if (!prevDevices.find(d => d.id === peripheral.id)) {
+                    return [...prevDevices, peripheral];
+                }
+                return prevDevices;
+            });
+        }
+    };
+
+    const handleStopScan = () => {
+        console.log('Scan stopped');
+        setScanning(false);
+        setIsSearching(false);
+    };
+
+    const handleDisconnectedPeripheral = data => {
+        Alert.alert('Disconnected', `Disconnected from device ${data.peripheral}`);
+        resetConnection();
+    };
+
+    const resetConnection = () => {
+        setConnectedDevice(null);
+        setServices([]);
+        setCharacteristics([]);
+    };
+
     const scanAndConnect = useCallback(() => {
         console.log('Starting scan');
         setIsSearching(true);
         setScanning(true);
-        setDevices([]); // Clear previous scan results
-        BleManager.scan([], 10, true).catch((error) => console.warn('Error during scan:', error));
+        setDevices([]);
+        BleManager.scan([], 10, true).catch(error => console.warn('Error during scan:', error));
     }, []);
 
     useEffect(() => {
         scanAndConnect();
     }, [scanAndConnect]);
 
-    const connectToDevice = useCallback(
-        async (device) => {
-            const deviceId = device.id;
-            setIsLoading(true);
-            try {
-                if (connectedDevice === deviceId) {
-                    await BleManager.disconnect(deviceId);
-                    setConnectedDevice(null);
-                    setServices([]);
-                    setCharacteristics([]);
-                    fetchServices(deviceId);
-                } else {
-                    await BleManager.connect(deviceId);
-                    setConnectedDevice(deviceId);
-                    fetchServices(deviceId);
-                    Alert.alert('Connected', `Successfully connected to device ${deviceId}`);
-                }
-            } catch (error) {
-                Alert.alert('Error', 'Failed to connect to device.');
-            } finally {
-                setIsLoading(false);
+    const connectToDevice = useCallback(async device => {
+        const deviceId = device.id;
+        setIsLoading(true);
+        try {
+            if (connectedDevice === deviceId) {
+                await BleManager.disconnect(deviceId);
+                resetConnection();
+            } else {
+                await BleManager.connect(deviceId);
+                setConnectedDevice(deviceId);
+                fetchServices(deviceId);
+                Alert.alert('Connected', `Successfully connected to device ${deviceId}`);
             }
-        },
-        [connectedDevice]
-    );
+        } catch (error) {
+            Alert.alert('Error', 'Failed to connect to device.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, [connectedDevice]);
 
-    const fetchServices = useCallback(
-        async (deviceId) => {
-            try {
-                const servicesData = await BleManager.retrieveServices(deviceId);
-                const filteredCharacteristics = servicesData.characteristics.filter(
-                    (char) => char.service !== '1800' && char.service !== '1801'
-                );
-                setServices(servicesData.services);
-                console.log('servicesData.services', servicesData.services, 'filteredCharacteristics', filteredCharacteristics)
-                setCharacteristics(filteredCharacteristics);
-            } catch (error) {
-                console.warn('Error fetching services:', error);
-            }
-        },
-        []
-    );
-
+    const fetchServices = useCallback(async deviceId => {
+        try {
+            const servicesData = await BleManager.retrieveServices(deviceId);
+            const filteredCharacteristics = servicesData.characteristics.filter(
+                char => char.service !== '1800' && char.service !== '1801'
+            );
+            setServices(servicesData.services);
+            setCharacteristics(filteredCharacteristics);
+        } catch (error) {
+            console.warn('Error fetching services:', error);
+        }
+    }, []);
 
     const readCharacteristic = async (serviceUUID, characteristicUUID) => {
         try {
-            const value = await connectedDevice.readCharacteristicForService(
-                serviceUUID,
-                characteristicUUID
-            );
-            return value ? value.value : null;
+            const readData = await BleManager.read(connectedDevice, serviceUUID, characteristicUUID);
+            const buffer = Buffer.from(readData);
+            const decodedValue = buffer.toString('utf-8');
+            console.log('Read value:', decodedValue);
+            return decodedValue;
         } catch (error) {
             console.error('Failed to read characteristic:', error);
-            return null;
+            Alert.alert('Error', 'Failed to read characteristic.');
         }
     };
 
-    // Write characteristic value
-    const writeCharacteristic = async (serviceUUID, characteristicUUID, inputValue) => {
+    const writeCharacteristic = useCallback(async (selectedCharacteristic, connectedDevice, service, inputValue,) => {
         console.log('Attempting to write characteristic');
-        console.log('serviceUUID:', serviceUUID);
-        console.log('characteristicUUID:', characteristicUUID);
+        console.log('characteristicUUID:', selectedCharacteristic);
+        console.log('connectedDevice:', connectedDevice);
         console.log('inputValue:', inputValue);
+        if (!selectedCharacteristic || !inputValue || !connectedDevice) {
+            Alert.alert('Error', 'No characteristic selected or value not provided.');
+            return;
+        }
 
         try {
-            const encodedValue = Buffer.from(inputValue).toString('base64'); // Encode input value to Base64
-            console.log('Encoded value:', encodedValue);
-
-            await connectedDevice.writeCharacteristicWithResponseForService(
-                serviceUUID,
-                characteristicUUID,
-                encodedValue
+            const byteArray = textStringToAsciiArray(inputValue.toString());
+            await BleManager.writeWithoutResponse(
+                connectedDevice,
+                service,
+                selectedCharacteristic,
+                byteArray,
+                512
             );
-
-            console.log('Successfully written:', inputValue);
+            Alert.alert('Success', 'Value written successfully');
         } catch (error) {
-            console.error('Failed to write characteristic:', error);
+            console.warn('Error writing characteristic:', error);
+            Alert.alert('Error', `Failed to write value: ${error.message}`);
         }
-    };
+    }, [connectedDevice, characteristics]);
 
+    const textStringToAsciiArray = (str) => {
+        return Array.from(str).map(char => char.charCodeAt(0));
+    };
 
     return (
         <View style={styles.container}>
@@ -220,16 +211,22 @@ const BLEScan = () => {
                                 connectedDevice={connectedDevice}
                                 services={services}
                                 characteristics={characteristics}
+                                setSelectedCharacteristic={setSelectedCharacteristic}
                             />
-                            {isWriting && <ActivityIndicator size="large" color="#0000ff" />}
+
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Enter value to write"
+                                value={inputValue}
+                                onChangeText={setInputValue}
+                            />
+
+                            <Modal transparent={true} animationType="fade" visible={isLoading}>
+                                <View style={styles.modalOverlay}>
+                                    <ActivityIndicator size="large" color="#007AFF" />
+                                </View>
+                            </Modal>
                         </>
-                    )}
-                    {isLoading && (
-                        <Modal transparent={true} animationType="fade" visible={isLoading}>
-                            <View style={styles.modalOverlay}>
-                                <ActivityIndicator size="large" color="#007AFF" />
-                            </View>
-                        </Modal>
                     )}
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -253,32 +250,37 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 10,
+        paddingHorizontal: 20,
+        paddingVertical: 10,
         backgroundColor: '#007AFF',
-        width: '100%',
-        height: 60,
     },
     headerTitle: {
-        fontSize: 20,
-        color: '#fff',
+        fontSize: 24,
         fontWeight: 'bold',
+        color: '#fff',
     },
     rescanButton: {
+        backgroundColor: '#fff',
+        borderRadius: 10,
         paddingHorizontal: 15,
-        paddingVertical: 8,
-        backgroundColor: '#ffffff',
-        borderRadius: 5,
+        paddingVertical: 5,
     },
     rescanText: {
-        fontSize: 16,
         color: '#007AFF',
         fontWeight: 'bold',
     },
+    input: {
+        backgroundColor: '#fff',
+        borderRadius: 8,
+        margin: 10,
+        padding: 15,
+        fontSize: 16,
+    },
     modalOverlay: {
         flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
     },
 });
 

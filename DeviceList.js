@@ -1,23 +1,22 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native';
+import { Buffer } from 'buffer';
 
 const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConnecting, connectedDevice, services, characteristics }) => {
     const [modalVisible, setModalVisible] = useState(false);
     const [inputValue, setInputValue] = useState('');
     const [readValue, setReadValue] = useState(null);
+    const [selectedCharacteristic, setLocalSelectedCharacteristic] = useState(null); // Local state for selected characteristic
 
-    // Filter the list to show only connectable devices and ensure unique devices by ID
-    const connectableDevices = devices
-        ?.filter((device, index, self) =>
-            device.advertising?.isConnectable &&
-            index === self.findIndex(d => d.id === device.id)
-        );
+    console.log('services', selectedCharacteristic)
+
+    // Filter the list to show only connectable devices
+    const connectableDevices = devices?.filter((device, index, self) =>
+        device.advertising?.isConnectable && index === self.findIndex(d => d.id === device.id)
+    );
 
     // Render each device item
     const renderItem = ({ item }) => {
-        const serviceUUID = connectedDevice === item.id ? services[0]?.uuid : null; // Example: First service
-        const characteristicUUID = connectedDevice === item.id ? characteristics[0]?.uuid : null; // Example: First characteristic
-
         return (
             <View style={styles.deviceCard}>
                 <Text style={styles.deviceText}>ID: {item.id}</Text>
@@ -54,10 +53,11 @@ const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConn
                         <TouchableOpacity
                             style={styles.readButton}
                             onPress={async () => {
-                                if (serviceUUID && characteristicUUID) {
-                                    const data = await onRead(serviceUUID, characteristicUUID);
-                                    setReadValue(data);
-                                }
+                                const serviceUUID = services[0]?.uuid; // Example: First service
+                                const characteristicUUID = characteristics[0]?.uuid; // Example: First characteristic
+                                const data = await onRead(serviceUUID, characteristicUUID);
+                                const stringValue = Buffer.from(data).toString('utf-8');
+                                setReadValue(stringValue);
                             }}
                             accessibilityLabel={`Read characteristic for ${item.advertising.localName || 'Unknown'}`}
                         >
@@ -71,7 +71,28 @@ const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConn
                         >
                             <Text style={styles.buttonText}>Write</Text>
                         </TouchableOpacity>
+                    </View>
+                )}
 
+                {/* List writable characteristics */}
+                {connectedDevice === item.id && characteristics?.length > 0 && (
+                    <View style={styles.characteristicsContainer}>
+                        {characteristics.map((characteristic, index) => (
+                            characteristic.properties?.write && (
+                                <View key={index} style={styles.characteristicItem}>
+                                    <Text style={styles.characteristicText}>{characteristic.uuid}</Text>
+                                    <TouchableOpacity
+                                        style={styles.writeButton}
+                                        onPress={() => {
+                                            setLocalSelectedCharacteristic(characteristic); // Set the local selected characteristic
+                                            setModalVisible(true); // Open modal for writing
+                                        }}
+                                    >
+                                        <Text style={styles.buttonText}>Write to {characteristic.uuid}</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )
+                        ))}
                     </View>
                 )}
             </View>
@@ -111,25 +132,62 @@ const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConn
                 animationType="slide"
                 transparent={true}
                 visible={modalVisible}
-                onRequestClose={() => setModalVisible(false)}
+                onRequestClose={() => {
+                    setModalVisible(false);
+                    setLocalSelectedCharacteristic(null); // Clear local selection on modal close
+                }}
             >
                 <View style={styles.modalView}>
+                    <Text style={styles.modalText}>Select Characteristic to Write</Text>
+
+                    <FlatList
+                        data={characteristics}
+                        keyExtractor={(item, index) => `${item.uuid}-${index}`} // Combine keys
+                        renderItem={({ item }) => {
+                            // Check if the characteristic is writable (case insensitive)
+                            const isWritable = item.properties?.write || item.properties?.Write || item.properties?.writeWithoutResponse || item.properties?.WriteWithoutResponse;
+
+                            // Only display characteristics with write properties
+                            if (isWritable) {
+                                return (
+                                    <TouchableOpacity
+                                        style={styles.characteristicItem}
+                                        onPress={() => {
+                                            setLocalSelectedCharacteristic(item); // Use local state
+                                        }}
+                                    >
+                                        <Text style={styles.characteristicText}>
+                                            Characteristic: {item.uuid} (Service: {item.service})
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                            }
+
+                            return null; // Return null for non-writable characteristics
+                        }}
+                        contentContainerStyle={styles.listContainer}
+                        ListEmptyComponent={<Text style={styles.emptyText}>No writable characteristics available.</Text>}
+                    />
+
+                    {/* Input for the value to write */}
                     <TextInput
                         style={styles.input}
                         placeholder="Enter value to write"
                         value={inputValue}
                         onChangeText={setInputValue}
                     />
+
                     <TouchableOpacity
-                        style={{ height: 40 }}
+                        style={{ ...styles.writeButton, height: 50 }}
                         onPress={() => {
-                            if (connectedDevice && services[0]?.uuid && characteristics[0]?.uuid) {
-                                console.log('Write button pressed');
-                                onWrite(services[0].uuid, characteristics[0].uuid, inputValue); // Sample data for writing
-                                setInputValue('');
-                                setModalVisible(false);
+                            if (selectedCharacteristic) {
+                                console.log('Writing to characteristic:', selectedCharacteristic);
+                                const bufferValue = Buffer.from(inputValue, 'utf-8');
+                                onWrite(selectedCharacteristic.characteristic, connectedDevice, selectedCharacteristic.service, bufferValue);
+                                setInputValue(''); // Clear input after writing
+                                setModalVisible(false); // Close modal
                             } else {
-                                console.log('Device, service, or characteristic not available');
+                                console.warn('Characteristic not available for writing');
                             }
                         }}
                     >
@@ -138,7 +196,10 @@ const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConn
 
                     <TouchableOpacity
                         style={styles.closeButton}
-                        onPress={() => setModalVisible(false)}
+                        onPress={() => {
+                            setModalVisible(false);
+                            setLocalSelectedCharacteristic(null); // Clear local selection on modal close
+                        }}
                     >
                         <Text style={styles.buttonText}>Close</Text>
                     </TouchableOpacity>
@@ -148,6 +209,7 @@ const DeviceList = ({ devices, onConnect, onViewDetails, onRead, onWrite, isConn
     );
 };
 
+// Styles remain unchanged
 const styles = StyleSheet.create({
     listContainer: {
         padding: 10,
@@ -158,8 +220,6 @@ const styles = StyleSheet.create({
         padding: 15,
         marginVertical: 10,
         elevation: 3,
-
-
     },
     deviceText: {
         color: '#ffffff',
@@ -239,6 +299,19 @@ const styles = StyleSheet.create({
         padding: 10,
         borderRadius: 5,
         alignItems: 'center',
+    },
+    characteristicsContainer: {
+        marginTop: 15,
+    },
+    characteristicItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginVertical: 5,
+    },
+    characteristicText: {
+        color: '#ffffff',
+        fontSize: 14,
     },
 });
 
