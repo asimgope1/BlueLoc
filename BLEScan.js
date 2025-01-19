@@ -21,8 +21,20 @@ import DeviceList from './DeviceList';
 import RadarAnimation from './RadarAnimation';
 import BleManager from 'react-native-ble-manager';
 import { Buffer } from 'buffer';
+import { useDispatch, useSelector } from 'react-redux';
+import {
+    connectDevice,
+    disconnectDevice,
+    setServices,
+    setCharacteristics,
+    startConnecting,
+    stopConnecting,
+} from './bluetoothSlice';
 
 const BLEScan = () => {
+
+
+
     const [scanning, setScanning] = useState(false);
     const [isSearching, setIsSearching] = useState(true);
     const [devices, setDevices] = useState([]);
@@ -169,7 +181,7 @@ const BLEScan = () => {
                 byteArray,
                 512
             );
-            Alert.alert('Success', 'Value written successfully');
+            // Alert.alert('Success', 'Value written successfully');
         } catch (error) {
             console.warn('Error writing characteristic:', error);
             Alert.alert('Error', `Failed to write value: ${error.message}`);
