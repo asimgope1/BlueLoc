@@ -303,17 +303,18 @@ const DeviceList = ({
         ) : (
           <View style={styles.modalView}>
             {/* button to open QR code scanner */}
-            <TouchableOpacity
+            {/* <TouchableOpacity
               style={styles.qrCodeButton}
               onPress={() => {
                 setQRCodeScanner(true);
                 // setModalVisible(false);
               }}>
               <Text style={styles.buttonText}>Open QR Code Scanner</Text>
-            </TouchableOpacity>
+            </TouchableOpacity> */}
             <Text style={styles.modalText}>Write Characteristic Values</Text>
 
             {/* TextInput for Characteristics 0001, 0002, 0003 */}
+            <Text style={styles.header}>URL</Text>
             <TextInput
               style={styles.input}
               placeholder="Enter URL"
@@ -325,6 +326,8 @@ const DeviceList = ({
               onChangeText={handleTextInputChange}
               maxLength={57}
             />
+
+            <Text style={styles.header}>APN</Text>
 
             <TextInput
               style={styles.input}
@@ -349,6 +352,7 @@ const DeviceList = ({
               }}
               maxLength={38}
             />
+            <Text style={styles.header}>TOPIC</Text>
 
             <TextInput
               style={styles.input}
@@ -366,6 +370,7 @@ const DeviceList = ({
               }}
               maxLength={19}
             />
+            <Text style={styles.header}>Sleep Time</Text>
 
             <DropDownPicker
               open={charDropdownOpen}
@@ -401,6 +406,7 @@ const DeviceList = ({
               }}
               placeholder="Select Sleep Time"
             />
+            <Text style={styles.header}>PORT</Text>
 
             <TextInput
               style={styles.input}
@@ -412,6 +418,7 @@ const DeviceList = ({
               }
               maxLength={19}
             />
+            <Text style={styles.header}>Date Rate</Text>
 
             <TextInput
               style={styles.input}
@@ -574,6 +581,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
     alignSelf: 'center',
+  },
+  header: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 8,
+    color: 'white',
+    justifyContent: 'center',
+    paddingLeft: 40,
   },
 });
 

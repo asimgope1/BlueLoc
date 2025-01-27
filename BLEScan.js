@@ -223,6 +223,7 @@ const BLEScan = () => {
     return Array.from(str).map(char => char.charCodeAt(0));
   };
 
+  console.log('sacn devices', devices);
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#007AFF" />
