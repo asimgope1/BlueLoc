@@ -90,6 +90,7 @@ const BLEScan = () => {
   };
 
   const handleDiscoverPeripheral = peripheral => {
+    console.log('Discovered peripheral:', peripheral);
     if (peripheral && peripheral.name) {
       setDevices(prevDevices => {
         if (!prevDevices.find(d => d.id === peripheral.id)) {

@@ -370,7 +370,7 @@ const DeviceList = ({
               }}
               maxLength={19}
             />
-            <Text style={styles.header}>Sleep Time</Text>
+            <Text style={styles.header}>Sleep Time(Min)</Text>
 
             <DropDownPicker
               open={charDropdownOpen}
