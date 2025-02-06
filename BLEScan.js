@@ -45,8 +45,22 @@ const BLEScan = () => {
   const {width: WIDTH} = Dimensions.get('window');
 
   useEffect(() => {
+    const enableBluetooth = async () => {
+      try {
+        await BleManager.enableBluetooth();
+        console.log('Bluetooth is enabled');
+      } catch (error) {
+        Alert.alert(
+          'Bluetooth Required',
+          'Please enable Bluetooth to use this app.',
+        );
+      }
+    };
+
     BleManager.start({showAlert: false});
     requestPermissions();
+    enableBluetooth(); // Prompt to enable Bluetooth
+
     const bleManagerEmitter = new NativeEventEmitter(NativeModules.BleManager);
 
     const discoverListener = bleManagerEmitter.addListener(
@@ -81,17 +95,16 @@ const BLEScan = () => {
           permission => permission !== PermissionsAndroid.RESULTS.GRANTED,
         )
       ) {
-        Alert.alert(
-          'Permission Required',
-          'Please grant all permissions to use Bluetooth features.',
-        );
+        // Alert.alert(
+        //   'Permission Required',
+        //   'Please grant all permissions to use Bluetooth features.',
+        // );
       }
     }
   };
 
   const handleDiscoverPeripheral = peripheral => {
-    console.log('Discovered peripheral:', peripheral);
-    if (peripheral && peripheral.name) {
+    if (peripheral && peripheral.name === 'EPSUMLABS') {
       setDevices(prevDevices => {
         if (!prevDevices.find(d => d.id === peripheral.id)) {
           return [...prevDevices, peripheral];
@@ -123,7 +136,7 @@ const BLEScan = () => {
     setIsSearching(true);
     setScanning(true);
     setDevices([]);
-    BleManager.scan([], 10, true).catch(error =>
+    BleManager.scan([], 15, true).catch(error =>
       console.warn('Error during scan:', error),
     );
   }, []);
