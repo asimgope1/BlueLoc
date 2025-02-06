@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import {
   StatusBar,
 } from 'react-native';
 import BleManager from 'react-native-ble-manager';
-import { Buffer } from 'buffer';
+import {Buffer} from 'buffer';
 import DropDownPicker from 'react-native-dropdown-picker';
 
 const BluetoothScanner = () => {
@@ -31,10 +31,10 @@ const BluetoothScanner = () => {
   const [writeValue, setWriteValue] = useState('');
   const [charDropdownOpen, setCharDropdownOpen] = useState(false);
 
-  const { width: WIDTH, height: HEIGHT } = Dimensions.get('window');
+  const {width: WIDTH, height: HEIGHT} = Dimensions.get('window');
 
   useEffect(() => {
-    BleManager.start({ showAlert: false });
+    BleManager.start({showAlert: false});
 
     const requestPermissions = async () => {
       if (Platform.OS === 'android') {
@@ -45,11 +45,11 @@ const BluetoothScanner = () => {
         ]);
         if (
           granted['android.permission.ACCESS_FINE_LOCATION'] !==
-          PermissionsAndroid.RESULTS.GRANTED ||
+            PermissionsAndroid.RESULTS.GRANTED ||
           granted['android.permission.BLUETOOTH_SCAN'] !==
-          PermissionsAndroid.RESULTS.GRANTED ||
+            PermissionsAndroid.RESULTS.GRANTED ||
           granted['android.permission.BLUETOOTH_CONNECT'] !==
-          PermissionsAndroid.RESULTS.GRANTED
+            PermissionsAndroid.RESULTS.GRANTED
         ) {
           // Alert.alert(
           //   'Permission Required',
@@ -150,8 +150,6 @@ const BluetoothScanner = () => {
     }
   }, []);
 
-
-
   const readCharacteristic = useCallback(
     async characteristic => {
       if (connectedDevice) {
@@ -171,7 +169,6 @@ const BluetoothScanner = () => {
 
           // Convert the read data to Buffer
           const buffer = Buffer.from(readData);
-
 
           // Optionally, process the buffer based on data type
           let parsedData;
@@ -217,39 +214,49 @@ const BluetoothScanner = () => {
 
         byteArray = textStringToAsciiArray(writeValue.toString());
         // Handle different characteristics conversions
-        if (selectedCharacteristic.characteristic === "0008") {
+        if (selectedCharacteristic.characteristic === '0008') {
           // Convert port value to ASCII byte array
           byteArray = textStringToAsciiArray(writeValue.toString());
-        }
-
-        else if (selectedCharacteristic.characteristic === "0009") {
+        } else if (selectedCharacteristic.characteristic === '0009') {
           // Convert baud rate value to ASCII byte array
           byteArray = textStringToAsciiArray(writeValue.toString());
-        } else if (selectedCharacteristic.characteristic === "0007") {
+        } else if (selectedCharacteristic.characteristic === '0007') {
           // Convert the numeric value to its ASCII byte representation
           byteArray = textStringToAsciiArray(writeValue.toString());
         }
 
         // Ensure byteArray is defined and is an array
         if (!byteArray || !Array.isArray(byteArray)) {
-          throw new Error('Invalid byteArray, unable to proceed with writing characteristic');
+          throw new Error(
+            'Invalid byteArray, unable to proceed with writing characteristic',
+          );
         }
 
-
-        const writeToCharacteristic = async (device, service, characteristic, data) => {
-          await BleManager.writeWithoutResponse(device, service, characteristic, data, 512);
+        const writeToCharacteristic = async (
+          device,
+          service,
+          characteristic,
+          data,
+        ) => {
+          await BleManager.writeWithoutResponse(
+            device,
+            service,
+            characteristic,
+            data,
+            512,
+          );
         };
 
         const characteristicMap = {
-          "0001": { next: "0002", maxBytes: 19 },
-          "0002": { next: "0003", maxBytes: 19 },
-          "0003": { next: null, maxBytes: 19 },
-          "0004": { next: "0005", maxBytes: 19 },
-          "0005": { next: null, maxBytes: 19 },
-          "0006": { next: null, maxBytes: 19 },
-          "0007": { next: null, maxBytes: 19, defaultValue: [4] },
-          "0008": { next: null, maxBytes: 19 },
-          "0009": { next: null, maxBytes: 19 },
+          '0001': {next: '0002', maxBytes: 19},
+          '0002': {next: '0003', maxBytes: 19},
+          '0003': {next: null, maxBytes: 19},
+          '0004': {next: '0005', maxBytes: 19},
+          '0005': {next: null, maxBytes: 19},
+          '0006': {next: null, maxBytes: 19},
+          '0007': {next: null, maxBytes: 19, defaultValue: [4]},
+          '0008': {next: null, maxBytes: 19},
+          '0009': {next: null, maxBytes: 19},
         };
 
         const writeDataWithOverflow = async (startingCharacteristic, data) => {
@@ -257,15 +264,18 @@ const BluetoothScanner = () => {
           let offset = 0;
 
           while (currentCharacteristic && offset < data.length) {
-            const { next, maxBytes } = characteristicMap[currentCharacteristic];
+            const {next, maxBytes} = characteristicMap[currentCharacteristic];
             const chunk = data.slice(offset, offset + maxBytes);
 
-            console.log(`Writing to characteristic ${currentCharacteristic}:`, chunk);
+            console.log(
+              `Writing to characteristic ${currentCharacteristic}:`,
+              chunk,
+            );
             await writeToCharacteristic(
               connectedDevice,
               selectedCharacteristic.service,
               currentCharacteristic,
-              chunk
+              chunk,
             );
 
             currentCharacteristic = next;
@@ -273,23 +283,29 @@ const BluetoothScanner = () => {
           }
 
           if (offset < data.length) {
-            throw new Error('Data size exceeds available characteristic storage');
+            throw new Error(
+              'Data size exceeds available characteristic storage',
+            );
           }
         };
 
         const characteristic = selectedCharacteristic.characteristic;
-        if (characteristic === "0001" || characteristic === "0002" || characteristic === "0003") {
-          await writeDataWithOverflow("0001", byteArray);
-        } else if (characteristic === "0004" || characteristic === "0005") {
-          await writeDataWithOverflow("0004", byteArray);
-        } else if (characteristic === "0006") {
-          await writeDataWithOverflow("0006", byteArray);
-        } else if (characteristic === "0007") {
-          await writeDataWithOverflow("0007", byteArray);
-        } else if (characteristic === "0008") {
-          await writeDataWithOverflow("0008", byteArray);
-        } else if (characteristic === "0009") {
-          await writeDataWithOverflow("0009", byteArray);
+        if (
+          characteristic === '0001' ||
+          characteristic === '0002' ||
+          characteristic === '0003'
+        ) {
+          await writeDataWithOverflow('0001', byteArray);
+        } else if (characteristic === '0004' || characteristic === '0005') {
+          await writeDataWithOverflow('0004', byteArray);
+        } else if (characteristic === '0006') {
+          await writeDataWithOverflow('0006', byteArray);
+        } else if (characteristic === '0007') {
+          await writeDataWithOverflow('0007', byteArray);
+        } else if (characteristic === '0008') {
+          await writeDataWithOverflow('0008', byteArray);
+        } else if (characteristic === '0009') {
+          await writeDataWithOverflow('0009', byteArray);
         } else {
           throw new Error('Unsupported characteristic');
         }
@@ -336,8 +352,8 @@ const BluetoothScanner = () => {
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}>
+        style={{flex: 1}}>
+        <ScrollView contentContainerStyle={{flexGrow: 1, paddingBottom: 20}}>
           <View style={styles.container}>
             <View
               style={{
@@ -354,7 +370,7 @@ const BluetoothScanner = () => {
                   height: '100%',
                   width: '50%',
                 }}>
-                <Text style={{ ...styles.header, marginLeft: '10%' }}>
+                <Text style={{...styles.header, marginLeft: '10%'}}>
                   Devices
                 </Text>
               </View>
@@ -368,7 +384,7 @@ const BluetoothScanner = () => {
                   width: '50%',
                   alignItems: 'flex-end',
                 }}>
-                <Text style={{ ...styles.header, marginRight: '20%' }}>Scan</Text>
+                <Text style={{...styles.header, marginRight: '20%'}}>Scan</Text>
               </TouchableOpacity>
             </View>
             <View
@@ -380,33 +396,6 @@ const BluetoothScanner = () => {
                 borderWidth: 1,
                 borderRadius: 10,
               }}>
-              <FlatList
-                data={devices}
-                renderItem={({ item }) => (
-                  <View style={styles.deviceContainer}>
-                    <Text
-                      ellipsizeMode="tail"
-                      numberOfLines={1}
-                      style={styles.device}>
-                      Device found:{item.name}
-                    </Text>
-                    {connectedDevice === item.id ? (
-                      <TouchableOpacity
-                        style={styles.button}
-                        onPress={disconnectFromDevice}>
-                        <Text style={styles.buttonText}>Disconnect</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.button}
-                        onPress={() => connectToDevice(item.id)}>
-                        <Text style={styles.buttonText}>Connect</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                )}
-                keyExtractor={item => item.id}
-              />
               <TouchableOpacity
                 style={styles.button}
                 onPress={disconnectFromDevice}>
@@ -428,7 +417,7 @@ const BluetoothScanner = () => {
                   }}>
                   <FlatList
                     data={characteristics}
-                    renderItem={({ item }) => (
+                    renderItem={({item}) => (
                       <View style={styles.characteristicContainer}>
                         <Text style={styles.device}>
                           Characteristic: {item.characteristic}
@@ -462,44 +451,44 @@ const BluetoothScanner = () => {
                 </View>
                 {selectedCharacteristic && readValue === null && (
                   <>
-
                     <Text style={styles.header}>Characteristic Value</Text>
-                    {selectedCharacteristic?.characteristic === "0007" && <DropDownPicker
-                      open={charDropdownOpen}
-                      value={writeValue}
-                      items={[
-                        { label: '4', value: 4 },
-                        { label: '8', value: 8 },
-                        { label: '12', value: 12 },
-                        { label: '16', value: 16 },
-                      ]}
-                      setOpen={setCharDropdownOpen}
-                      setValue={(value) => {
-                        setWriteValue(value); // Directly set the selected value
-                      }}
-                      style={styles.input}
-                    />}
+                    {selectedCharacteristic?.characteristic === '0007' && (
+                      <DropDownPicker
+                        open={charDropdownOpen}
+                        value={writeValue}
+                        items={[
+                          {label: '4', value: 4},
+                          {label: '8', value: 8},
+                          {label: '12', value: 12},
+                          {label: '16', value: 16},
+                        ]}
+                        setOpen={setCharDropdownOpen}
+                        setValue={value => {
+                          setWriteValue(value); // Directly set the selected value
+                        }}
+                        style={styles.input}
+                      />
+                    )}
 
-                    {selectedCharacteristic?.characteristic === "0008" && (
+                    {selectedCharacteristic?.characteristic === '0008' && (
                       <TextInput
                         keyboardType="numeric"
                         placeholder="Enter Port Value"
                         placeholderTextColor={'grey'}
                         value={writeValue}
                         maxLength={4}
-
                         onChangeText={setWriteValue}
                         style={styles.input}
                       />
                     )}
-                    {selectedCharacteristic?.characteristic === "0009" && (
+                    {selectedCharacteristic?.characteristic === '0009' && (
                       <TextInput
                         keyboardType="numeric"
                         placeholder="Enter data Rate"
                         placeholderTextColor={'grey'}
                         value={writeValue}
                         maxLength={4}
-                        onChangeText={(text) => {
+                        onChangeText={text => {
                           // Ensure the value is numeric before updating state
                           // if (/^\d*$/.test(text)) { // Allow only numeric input
                           setWriteValue(text);
@@ -508,15 +497,17 @@ const BluetoothScanner = () => {
                         style={styles.input}
                       />
                     )}
-                    {selectedCharacteristic?.characteristic !== "0008" && selectedCharacteristic?.characteristic !== "0009" && selectedCharacteristic?.characteristic !== "0007" && (
-                      <TextInput
-                        style={styles.input}
-                        placeholderTextColor={'gray'}
-                        placeholder="Enter value to write"
-                        value={writeValue}
-                        onChangeText={(txt) => setWriteValue(txt)}
-                      />
-                    )}
+                    {selectedCharacteristic?.characteristic !== '0008' &&
+                      selectedCharacteristic?.characteristic !== '0009' &&
+                      selectedCharacteristic?.characteristic !== '0007' && (
+                        <TextInput
+                          style={styles.input}
+                          placeholderTextColor={'gray'}
+                          placeholder="Enter value to write"
+                          value={writeValue}
+                          onChangeText={txt => setWriteValue(txt)}
+                        />
+                      )}
                     <Button
                       title="Write Characteristic"
                       onPress={() => writeCharacteristic()}
