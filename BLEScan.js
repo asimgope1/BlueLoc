@@ -104,7 +104,7 @@ const BLEScan = () => {
   };
 
   const handleDiscoverPeripheral = peripheral => {
-    if (peripheral && peripheral.name) {
+    if (peripheral && peripheral.name === 'EPSUMLABS') {
       setDevices(prevDevices => {
         if (!prevDevices.find(d => d.id === peripheral.id)) {
           return [...prevDevices, peripheral];
