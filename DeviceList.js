@@ -140,14 +140,14 @@ const DeviceList = ({
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={styles.detailsButton}
             onPress={() => onViewDetails(item)}
             accessibilityLabel={`View details for ${
               item.advertising.localName || 'Unknown'
             }`}>
             <Text style={styles.buttonText}>View Details</Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
         </View>
 
         {connectedDevice === item.id && (
