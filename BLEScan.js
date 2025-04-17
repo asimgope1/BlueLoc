@@ -17,6 +17,7 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
+import RNFS from 'react-native-fs';
 import BleManager from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
 import DeviceList from './DeviceList';
@@ -96,41 +97,57 @@ const BLEScan = () => {
   };
 
   const handleDiscoverPeripheral = async peripheral => {
-    if (peripheral?.name !== 'HR_9D') return;
-
-    console.log('🛰️ Found HR_9D:', peripheral);
-    setDevices([peripheral]);
-
-    try {
-      // await BleManager.connect(peripheral.id);
-      // console.log('✅ Connected to HR_9D');
-
-      // 🔧 Small delay before retrieving services
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const servicesData = await BleManager.retrieveServices(peripheral.id);
-      console.log('📡 All Services:', servicesData.services);
-      console.log('🧬 All Characteristics:', servicesData.characteristics);
-
-      const otaCandidates = servicesData.services.filter(service =>
-        /ota|dfu|update/i.test(service.uuid),
-      );
-
-      if (otaCandidates.length > 0) {
-        console.log('🔥 Possible OTA Services:', otaCandidates);
-        Alert.alert('OTA Service Found', JSON.stringify(otaCandidates));
-      } else {
-        console.log('❌ No obvious OTA service found');
-        Alert.alert(
-          'No OTA Service Found',
-          'Could not detect OTA update support.',
-        );
-      }
-    } catch (error) {
-      console.error('Connection or retrieval failed:', error);
-      Alert.alert('Error', 'Failed to connect or retrieve services.');
+    const name =
+      peripheral.name || peripheral.advertising?.localName || 'Unknown';
+    if (name.includes('p2pS_9D')) {
+      console.log('🛰️ Matched Device:', JSON.stringify(peripheral, null, 2));
     }
+
+    setDevices(prevDevices => {
+      const deviceExists = prevDevices.some(dev => dev.id === peripheral.id);
+      if (!deviceExists) {
+        return [...prevDevices, peripheral];
+      }
+      return prevDevices;
+    });
   };
+
+  // const handleDiscoverPeripheral = async peripheral => {
+  //   // if (peripheral?.name !== 'HR_9D') return;
+  //   //
+  //   console.log('🛰️ Found HR_9D:', peripheral);
+  //   setDevices([peripheral]);
+
+  //   try {
+  //     // await BleManager.connect(peripheral.id);
+  //     // console.log('✅ Connected to HR_9D');
+
+  //     // 🔧 Small delay before retrieving services
+  //     await new Promise(resolve => setTimeout(resolve, 1000));
+
+  //     const servicesData = await BleManager.retrieveServices(peripheral.id);
+  //     console.log('📡 All Services:', servicesData.services);
+  //     console.log('🧬 All Characteristics:', servicesData.characteristics);
+
+  //     const otaCandidates = servicesData.services.filter(service =>
+  //       /ota|dfu|update/i.test(service.uuid),
+  //     );
+
+  //     if (otaCandidates.length > 0) {
+  //       console.log('🔥 Possible OTA Services:', otaCandidates);
+  //       Alert.alert('OTA Service Found', JSON.stringify(otaCandidates));
+  //     } else {
+  //       console.log('❌ No obvious OTA service found');
+  //       Alert.alert(
+  //         'No OTA Service Found',
+  //         'Could not detect OTA update support.',
+  //       );
+  //     }
+  //   } catch (error) {
+  //     console.error('Connection or retrieval failed:', error);
+  //     Alert.alert('Error', 'Failed to connect or retrieve services.');
+  //   }
+  // };
 
   // Dummy function to perform OTA update (replace with actual logic)
   const performOTAUpdate = async (
@@ -225,10 +242,10 @@ const BLEScan = () => {
           return;
         }
 
-        console.log(`🔗 Connecting to ${deviceId}...`);
+        console.log(`🔗 Connecting to ${deviceId} (${deviceName})...`);
         await BleManager.connect(deviceId);
 
-        // Android bonding (if required)
+        // Android bonding
         if (Platform.OS === 'android' && device.bonded !== true) {
           try {
             await BleManager.createBond(deviceId);
@@ -241,7 +258,7 @@ const BLEScan = () => {
         setConnectedDevice(deviceId);
         console.log('✅ Connected to', deviceId);
 
-        // Android MTU Request
+        // Request MTU (Android)
         if (Platform.OS === 'android') {
           try {
             const mtu = await BleManager.requestMTU(deviceId, 180);
@@ -251,8 +268,14 @@ const BLEScan = () => {
           }
         }
 
-        // Retrieve GATT Services & Characteristics
+        // Retrieve services and characteristics
         const servicesData = await BleManager.retrieveServices(deviceId);
+
+        // 🧾 Log entire data as formatted JSON
+        console.log('📋 Full Services & Characteristics JSON:');
+        console.log(JSON.stringify(servicesData, null, 2));
+
+        // Also log UUIDs separately if you want a quick glance
         console.log(
           '📡 Services:',
           servicesData.services.map(s => s.uuid),
@@ -262,7 +285,7 @@ const BLEScan = () => {
         setServices(servicesData.services);
         setCharacteristics(servicesData.characteristics);
 
-        // Automatically subscribe to notify characteristic (example: Heart Rate 2A37)
+        // Subscribe to HR notifications if available
         const hrChar = servicesData.characteristics.find(
           c =>
             c.service.toLowerCase() === '180d' &&
@@ -334,6 +357,64 @@ const BLEScan = () => {
     }
   };
 
+  const loadFirmware = async fileName => {
+    const path = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+    try {
+      const binary = await RNFS.readFile(path, 'base64');
+      const buffer = Buffer.from(binary, 'base64');
+      return buffer;
+    } catch (err) {
+      console.error('❌ Error reading firmware file:', err.message);
+      Alert.alert('Error', 'Failed to load firmware file.');
+      return null;
+    }
+  };
+
+  const startOTAUpdate = async () => {
+    const deviceId = connectedDevice;
+    const otaChar = characteristics.find(
+      c =>
+        c.characteristic.toLowerCase() ===
+          '0000fe22-8e22-4541-9d4c-21edae82ed19' &&
+        c.service.toLowerCase() === '0000fe20-cc7a-482a-984a-7f2ed5b3e58f',
+    );
+
+    if (!deviceId || !otaChar) {
+      Alert.alert('Error', 'No OTA characteristic or device connected.');
+      return;
+    }
+
+    const firmwareBuffer = await loadFirmware('firmware.bin');
+    if (!firmwareBuffer) return;
+
+    try {
+      const chunkSize = 512;
+      let offset = 0;
+
+      while (offset < firmwareBuffer.length) {
+        const chunk = firmwareBuffer.slice(offset, offset + chunkSize);
+        const byteArray = Array.from(chunk);
+
+        await BleManager.writeWithoutResponse(
+          deviceId,
+          otaChar.service,
+          otaChar.characteristic,
+          byteArray,
+          chunkSize,
+        );
+
+        offset += chunkSize;
+        console.log(`📦 Sent chunk: ${offset}/${firmwareBuffer.length}`);
+        await new Promise(resolve => setTimeout(resolve, 30)); // small delay
+      }
+
+      Alert.alert('✅ OTA Complete', 'Firmware successfully uploaded!');
+    } catch (error) {
+      console.error('❌ OTA failed:', error);
+      Alert.alert('Error', 'OTA update failed.');
+    }
+  };
+
   const writeCharacteristic = useCallback(
     async (characteristicUUID, deviceId, serviceUUID, value) => {
       if (!characteristicUUID || !value || !deviceId) {
@@ -386,7 +467,7 @@ const BLEScan = () => {
                   Alert.alert('Device Details', JSON.stringify(device))
                 }
                 onRead={readCharacteristic}
-                onWrite={writeCharacteristic}
+                onWrite={startOTAUpdate}
                 isConnecting={isLoading}
                 connectedDevice={connectedDevice}
                 services={services}

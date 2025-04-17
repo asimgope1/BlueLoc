@@ -154,11 +154,11 @@ const DeviceList = ({
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={styles.writeButton}
-              onPress={() => setModalVisible(true)}
+              onPress={() => onWrite()}
               accessibilityLabel={`Write characteristic for ${
                 item.advertising.localName || 'Unknown'
               }`}>
-              <Text style={styles.buttonText}>Write</Text>
+              <Text style={styles.buttonText}>Upload</Text>
             </TouchableOpacity>
           </View>
         )}
