@@ -17,19 +17,10 @@ import {
   Modal,
   TextInput,
 } from 'react-native';
-import DeviceList from './DeviceList';
-import RadarAnimation from './RadarAnimation';
 import BleManager from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
-import {useDispatch, useSelector} from 'react-redux';
-import {
-  connectDevice,
-  disconnectDevice,
-  setServices,
-  setCharacteristics,
-  startConnecting,
-  stopConnecting,
-} from './bluetoothSlice';
+import DeviceList from './DeviceList';
+import RadarAnimation from './RadarAnimation';
 
 const BLEScan = () => {
   const [scanning, setScanning] = useState(false);
@@ -39,8 +30,8 @@ const BLEScan = () => {
   const [services, setServices] = useState([]);
   const [characteristics, setCharacteristics] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [inputValue, setInputValue] = useState(''); // Input value for writing
-  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null); // Selected characteristic for writing
+  const [inputValue, setInputValue] = useState('');
+  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
 
   const {width: WIDTH} = Dimensions.get('window');
 
@@ -59,7 +50,7 @@ const BLEScan = () => {
 
     BleManager.start({showAlert: false});
     requestPermissions();
-    enableBluetooth(); // Prompt to enable Bluetooth
+    enableBluetooth();
 
     const bleManagerEmitter = new NativeEventEmitter(NativeModules.BleManager);
 
@@ -90,27 +81,86 @@ const BLEScan = () => {
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]);
-      if (
-        Object.values(granted).some(
-          permission => permission !== PermissionsAndroid.RESULTS.GRANTED,
-        )
-      ) {
-        // Alert.alert(
-        //   'Permission Required',
-        //   'Please grant all permissions to use Bluetooth features.',
-        // );
+
+      const allGranted = Object.values(granted).every(
+        permission => permission === PermissionsAndroid.RESULTS.GRANTED,
+      );
+
+      if (!allGranted) {
+        Alert.alert(
+          'Permission Required',
+          'Please grant all permissions to use Bluetooth features.',
+        );
       }
     }
   };
 
-  const handleDiscoverPeripheral = peripheral => {
-    if (peripheral && peripheral.name) {
-      setDevices(prevDevices => {
-        if (!prevDevices.find(d => d.id === peripheral.id)) {
-          return [...prevDevices, peripheral];
-        }
-        return prevDevices;
-      });
+  const handleDiscoverPeripheral = async peripheral => {
+    if (peripheral?.name !== 'HR_9D') return;
+
+    console.log('🛰️ Found HR_9D:', peripheral);
+    setDevices([peripheral]);
+
+    try {
+      // await BleManager.connect(peripheral.id);
+      // console.log('✅ Connected to HR_9D');
+
+      // 🔧 Small delay before retrieving services
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const servicesData = await BleManager.retrieveServices(peripheral.id);
+      console.log('📡 All Services:', servicesData.services);
+      console.log('🧬 All Characteristics:', servicesData.characteristics);
+
+      const otaCandidates = servicesData.services.filter(service =>
+        /ota|dfu|update/i.test(service.uuid),
+      );
+
+      if (otaCandidates.length > 0) {
+        console.log('🔥 Possible OTA Services:', otaCandidates);
+        Alert.alert('OTA Service Found', JSON.stringify(otaCandidates));
+      } else {
+        console.log('❌ No obvious OTA service found');
+        Alert.alert(
+          'No OTA Service Found',
+          'Could not detect OTA update support.',
+        );
+      }
+    } catch (error) {
+      console.error('Connection or retrieval failed:', error);
+      Alert.alert('Error', 'Failed to connect or retrieve services.');
+    }
+  };
+
+  // Dummy function to perform OTA update (replace with actual logic)
+  const performOTAUpdate = async (
+    deviceId,
+    otaCharacteristic,
+    firmwareData,
+  ) => {
+    try {
+      const chunkSize = 512; // Adjust based on device specs
+      let offset = 0;
+
+      // Write firmware in chunks
+      while (offset < firmwareData.length) {
+        const chunk = firmwareData.slice(offset, offset + chunkSize);
+        await BleManager.write(
+          deviceId,
+          otaCharacteristic.service,
+          otaCharacteristic.uuid,
+          chunk,
+        );
+        offset += chunkSize;
+        console.log('Sent chunk:', chunk);
+      }
+
+      // After sending all chunks, you might need to trigger a final step (e.g., activation or reboot)
+      console.log('Firmware update complete');
+      Alert.alert('Success', 'Firmware update complete!');
+    } catch (error) {
+      console.warn('Error during OTA update:', error);
+      Alert.alert('Error', 'Firmware update failed!');
     }
   };
 
@@ -145,25 +195,108 @@ const BLEScan = () => {
     scanAndConnect();
   }, [scanAndConnect]);
 
+  useEffect(() => {
+    const handler = BleManager.addListener(
+      'BleManagerDidUpdateValueForCharacteristic',
+      ({value, peripheral, characteristic, service}) => {
+        const data = Buffer.from(value).toString('hex'); // or 'utf8' or raw
+        console.log(
+          `📨 Notification from ${peripheral} → ${characteristic}:`,
+          data,
+        );
+      },
+    );
+
+    return () => handler.remove();
+  }, []);
+
   const connectToDevice = useCallback(
     async device => {
       const deviceId = device.id;
+      const deviceName =
+        device.name || device.advertising?.localName || 'Unknown';
       setIsLoading(true);
+
       try {
         if (connectedDevice === deviceId) {
+          console.log('🔌 Already connected. Disconnecting...');
           await BleManager.disconnect(deviceId);
           resetConnection();
-        } else {
-          await BleManager.connect(deviceId);
-          setConnectedDevice(deviceId);
-          fetchServices(deviceId);
-          Alert.alert(
-            'Connected',
-            `Successfully connected to device ${deviceId}`,
-          );
+          return;
         }
+
+        console.log(`🔗 Connecting to ${deviceId}...`);
+        await BleManager.connect(deviceId);
+
+        // Android bonding (if required)
+        if (Platform.OS === 'android' && device.bonded !== true) {
+          try {
+            await BleManager.createBond(deviceId);
+            console.log('🔐 Bonding successful');
+          } catch (bondErr) {
+            console.warn('⚠️ Bonding failed:', bondErr.message);
+          }
+        }
+
+        setConnectedDevice(deviceId);
+        console.log('✅ Connected to', deviceId);
+
+        // Android MTU Request
+        if (Platform.OS === 'android') {
+          try {
+            const mtu = await BleManager.requestMTU(deviceId, 180);
+            console.log('📶 Requested MTU:', mtu);
+          } catch (err) {
+            console.warn('⚠️ MTU request failed:', err.message);
+          }
+        }
+
+        // Retrieve GATT Services & Characteristics
+        const servicesData = await BleManager.retrieveServices(deviceId);
+        console.log(
+          '📡 Services:',
+          servicesData.services.map(s => s.uuid),
+        );
+        console.log('🧬 Characteristics:', servicesData.characteristics);
+
+        setServices(servicesData.services);
+        setCharacteristics(servicesData.characteristics);
+
+        // Automatically subscribe to notify characteristic (example: Heart Rate 2A37)
+        const hrChar = servicesData.characteristics.find(
+          c =>
+            c.service.toLowerCase() === '180d' &&
+            c.characteristic.toLowerCase() === '2a37' &&
+            c.properties?.includes('Notify'),
+        );
+
+        if (hrChar) {
+          await BleManager.startNotification(
+            deviceId,
+            hrChar.service,
+            hrChar.characteristic,
+          );
+          console.log('🔔 Subscribed to Heart Rate notifications (0x2A37)');
+        }
+
+        Alert.alert('Connected', `Connected to ${deviceId}`);
       } catch (error) {
-        Alert.alert('Error', 'Failed to connect to device.');
+        console.warn(
+          '❌ Connection or service discovery failed:',
+          error.message,
+        );
+
+        if (error.message?.includes('Device disconnected')) {
+          console.log('🔁 Attempting cache refresh...');
+          try {
+            await BleManager.refreshCache(deviceId);
+          } catch (refreshErr) {
+            console.warn('⚠️ Cache refresh failed:', refreshErr.message);
+          }
+        }
+
+        Alert.alert('Error', 'Failed to connect or retrieve services.');
+        resetConnection();
       } finally {
         setIsLoading(false);
       }
@@ -202,42 +335,30 @@ const BLEScan = () => {
   };
 
   const writeCharacteristic = useCallback(
-    async (selectedCharacteristic, connectedDevice, service, inputValue) => {
-      console.log('Attempting to write characteristic');
-      console.log('characteristicUUID:', selectedCharacteristic);
-      console.log('connectedDevice:', connectedDevice);
-      console.log('inputValue:', inputValue);
-      if (!selectedCharacteristic || !inputValue || !connectedDevice) {
-        Alert.alert(
-          'Error',
-          'No characteristic selected or value not provided.',
-        );
+    async (characteristicUUID, deviceId, serviceUUID, value) => {
+      if (!characteristicUUID || !value || !deviceId) {
+        Alert.alert('Error', 'Characteristic, device, or value missing.');
         return;
       }
 
       try {
-        const byteArray = textStringToAsciiArray(inputValue.toString());
+        const byteArray = Array.from(value).map(char => char.charCodeAt(0));
         await BleManager.writeWithoutResponse(
-          connectedDevice,
-          service,
-          selectedCharacteristic,
+          deviceId,
+          serviceUUID,
+          characteristicUUID,
           byteArray,
           512,
         );
-        // Alert.alert('Success', 'Value written successfully');
+        Alert.alert('Success', 'Value written successfully');
       } catch (error) {
-        console.warn('Error writing characteristic:', error);
-        Alert.alert('Error', `Failed to write value: ${error.message}`);
+        console.warn('Write error:', error);
+        Alert.alert('Error', `Write failed: ${error.message}`);
       }
     },
-    [connectedDevice, characteristics],
+    [],
   );
 
-  const textStringToAsciiArray = str => {
-    return Array.from(str).map(char => char.charCodeAt(0));
-  };
-
-  console.log('sacn devices', devices);
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#007AFF" />
@@ -251,13 +372,11 @@ const BLEScan = () => {
             <>
               <View style={styles.header}>
                 <Text style={styles.headerTitle}>Bluelocate</Text>
-                {!isSearching && (
-                  <TouchableOpacity
-                    onPress={scanAndConnect}
-                    style={styles.rescanButton}>
-                    <Text style={styles.rescanText}>Rescan</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity
+                  onPress={scanAndConnect}
+                  style={styles.rescanButton}>
+                  <Text style={styles.rescanText}>Rescan</Text>
+                </TouchableOpacity>
               </View>
 
               <DeviceList
