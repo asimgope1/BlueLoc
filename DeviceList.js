@@ -173,8 +173,8 @@ const DeviceList = ({
     const limitedText = text.trim().slice(0, 57);
 
     let chunk1 = limitedText.slice(0, 19);
-    let chunk2 = limitedText.slice(19, 38);
-    let chunk3 = limitedText.slice(38, 57);
+    let chunk2 = limitedText.slice(19, 39);
+    let chunk3 = limitedText.slice(39, 57);
 
     setInputValues(prev => ({
       ...prev,
@@ -207,16 +207,23 @@ const DeviceList = ({
           '0009': '2', // Data rate default
         };
 
+    // Filter out empty values from the object
+    const filteredValues = Object.fromEntries(
+      Object.entries(valuesToSend).filter(
+        ([key, value]) => value.trim() !== '',
+      ),
+    );
+
     const combinedURL =
-      (valuesToSend['0001'] || '') +
-      (valuesToSend['0002'] || '') +
-      (valuesToSend['0003'] || '');
+      (filteredValues['0001'] || '') +
+      (filteredValues['0002'] || '') +
+      (filteredValues['0003'] || '');
     console.log('Combined URL to send:', combinedURL);
 
-    const characteristicKeys = Object.keys(valuesToSend);
+    const characteristicKeys = Object.keys(filteredValues);
 
     for (const characteristicKey of characteristicKeys) {
-      const value = valuesToSend[characteristicKey] || '';
+      const value = filteredValues[characteristicKey] || '';
       const bufferValue = Buffer.from(value, 'utf-8');
 
       console.log('Preparing to send data:', {
@@ -241,7 +248,13 @@ const DeviceList = ({
           console.log(
             `Data successfully written for characteristic ${characteristicKey}`,
           );
-          await delay(500);
+
+          // Apply 20s delay for '0001', '0002', '0003', otherwise 15s delay
+          if (['0001', '0002', '0003'].includes(characteristicKey)) {
+            await delay(10000); // 20 seconds delay
+          } else {
+            await delay(10000); // 15 seconds delay
+          }
         } catch (error) {
           console.error(
             `Failed to write data for characteristic ${characteristicKey}:`,
@@ -258,6 +271,7 @@ const DeviceList = ({
     setInputValues({});
     setModalVisible(false);
   };
+
   console.log('setQRCodeScanner', scannedCode);
   console.log('inputValues', inputValues);
   return (

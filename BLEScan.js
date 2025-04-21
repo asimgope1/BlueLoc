@@ -20,16 +20,8 @@ import {
 import DeviceList from './DeviceList';
 import RadarAnimation from './RadarAnimation';
 import BleManager from 'react-native-ble-manager';
+import RNFS from 'react-native-fs';
 import {Buffer} from 'buffer';
-import {useDispatch, useSelector} from 'react-redux';
-import {
-  connectDevice,
-  disconnectDevice,
-  setServices,
-  setCharacteristics,
-  startConnecting,
-  stopConnecting,
-} from './bluetoothSlice';
 
 const BLEScan = () => {
   const [scanning, setScanning] = useState(false);
@@ -39,27 +31,17 @@ const BLEScan = () => {
   const [services, setServices] = useState([]);
   const [characteristics, setCharacteristics] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [inputValue, setInputValue] = useState(''); // Input value for writing
-  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null); // Selected characteristic for writing
+  const [inputValue, setInputValue] = useState('');
+  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
+  const binFilePath = `${RNFS.DocumentDirectoryPath}/ble_data.bin`;
 
   const {width: WIDTH} = Dimensions.get('window');
 
+  // 🔥 Initialize BLE and request permissions
   useEffect(() => {
-    const enableBluetooth = async () => {
-      try {
-        await BleManager.enableBluetooth();
-        console.log('Bluetooth is enabled');
-      } catch (error) {
-        Alert.alert(
-          'Bluetooth Required',
-          'Please enable Bluetooth to use this app.',
-        );
-      }
-    };
-
     BleManager.start({showAlert: false});
     requestPermissions();
-    enableBluetooth(); // Prompt to enable Bluetooth
+    enableBluetooth();
 
     const bleManagerEmitter = new NativeEventEmitter(NativeModules.BleManager);
 
@@ -83,6 +65,7 @@ const BLEScan = () => {
     };
   }, []);
 
+  // 🛑 Request BLE permissions (Android)
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
@@ -95,16 +78,31 @@ const BLEScan = () => {
           permission => permission !== PermissionsAndroid.RESULTS.GRANTED,
         )
       ) {
-        // Alert.alert(
-        //   'Permission Required',
-        //   'Please grant all permissions to use Bluetooth features.',
-        // );
+        Alert.alert(
+          'Permission Required',
+          'Please grant all permissions to use Bluetooth features.',
+        );
       }
     }
   };
 
+  // ✅ Enable Bluetooth
+  const enableBluetooth = async () => {
+    try {
+      await BleManager.enableBluetooth();
+      console.log('✅ Bluetooth is enabled');
+    } catch (error) {
+      Alert.alert(
+        'Bluetooth Required',
+        'Please enable Bluetooth to use this app.',
+      );
+    }
+  };
+
+  // 🎯 Discover BLE devices
   const handleDiscoverPeripheral = peripheral => {
-    if (peripheral && peripheral.name === 'EPSUMLABS') {
+    if (peripheral) {
+      saveToBinFile(peripheral.advertising.rawData.bytes, 'Advertising Data');
       setDevices(prevDevices => {
         if (!prevDevices.find(d => d.id === peripheral.id)) {
           return [...prevDevices, peripheral];
@@ -114,25 +112,29 @@ const BLEScan = () => {
     }
   };
 
+  // ⏹️ Stop BLE scanning
   const handleStopScan = () => {
-    console.log('Scan stopped');
+    console.log('🔍 Scan stopped');
     setScanning(false);
     setIsSearching(false);
   };
 
-  const handleDisconnectedPeripheral = data => {
+  // ❗ Handle disconnection (No Auto Reconnect)
+  const handleDisconnectedPeripheral = async data => {
     Alert.alert('Disconnected', `Disconnected from device ${data.peripheral}`);
     resetConnection();
   };
 
+  // ♻️ Reset connection state
   const resetConnection = () => {
     setConnectedDevice(null);
     setServices([]);
     setCharacteristics([]);
   };
 
+  // 📡 Start scanning
   const scanAndConnect = useCallback(() => {
-    console.log('Starting scan');
+    console.log('🔍 Starting scan');
     setIsSearching(true);
     setScanning(true);
     setDevices([]);
@@ -145,6 +147,7 @@ const BLEScan = () => {
     scanAndConnect();
   }, [scanAndConnect]);
 
+  // 🔗 Connect to selected device (Manual Only)
   const connectToDevice = useCallback(
     async device => {
       const deviceId = device.id;
@@ -171,9 +174,13 @@ const BLEScan = () => {
     [connectedDevice],
   );
 
+  // 📡 Fetch services and characteristics
   const fetchServices = useCallback(async deviceId => {
     try {
       const servicesData = await BleManager.retrieveServices(deviceId);
+      console.log('services data: ', JSON.stringify(servicesData, null, 2));
+      saveToBinFile(servicesData.characteristics, 'Characteristics Data');
+
       const filteredCharacteristics = servicesData.characteristics.filter(
         char => char.service !== '1800' && char.service !== '1801',
       );
@@ -184,6 +191,7 @@ const BLEScan = () => {
     }
   }, []);
 
+  // 📖 Read characteristic
   const readCharacteristic = async (serviceUUID, characteristicUUID) => {
     try {
       const readData = await BleManager.read(
@@ -191,53 +199,74 @@ const BLEScan = () => {
         serviceUUID,
         characteristicUUID,
       );
+      saveToBinFile(readData, 'Read Characteristic Data');
+
       const buffer = Buffer.from(readData);
       const decodedValue = buffer.toString('utf-8');
-      console.log('Read value:', decodedValue);
-      return decodedValue;
+      Alert.alert('Read Value', `Value: ${decodedValue}`);
     } catch (error) {
       console.error('Failed to read characteristic:', error);
-      Alert.alert('Error', 'Failed to read characteristic.');
     }
   };
 
+  // ✍️ Write to characteristic
   const writeCharacteristic = useCallback(
-    async (selectedCharacteristic, connectedDevice, service, inputValue) => {
-      console.log('Attempting to write characteristic');
-      console.log('characteristicUUID:', selectedCharacteristic);
-      console.log('connectedDevice:', connectedDevice);
-      console.log('inputValue:', inputValue);
-      if (!selectedCharacteristic || !inputValue || !connectedDevice) {
-        Alert.alert(
-          'Error',
-          'No characteristic selected or value not provided.',
-        );
+    async (serviceUUID, characteristicUUID, inputValue) => {
+      if (!characteristicUUID || !inputValue || !connectedDevice) {
+        Alert.alert('Error', 'No characteristic or value provided.');
         return;
       }
 
       try {
         const byteArray = textStringToAsciiArray(inputValue.toString());
+        saveToBinFile(byteArray, 'Written Characteristic Data');
+
         await BleManager.writeWithoutResponse(
           connectedDevice,
-          service,
-          selectedCharacteristic,
+          serviceUUID,
+          characteristicUUID,
           byteArray,
           512,
         );
-        // Alert.alert('Success', 'Value written successfully');
+        Alert.alert('Success', 'Value written successfully');
       } catch (error) {
         console.warn('Error writing characteristic:', error);
         Alert.alert('Error', `Failed to write value: ${error.message}`);
       }
     },
-    [connectedDevice, characteristics],
+    [connectedDevice],
   );
 
+  // 🔡 Convert text to ASCII byte array
   const textStringToAsciiArray = str => {
     return Array.from(str).map(char => char.charCodeAt(0));
   };
 
-  console.log('sacn devices', devices);
+  // 📝 Save binary data to .bin file
+  const saveToBinFile = async (data, description = 'data') => {
+    try {
+      const buffer = Buffer.from(data);
+      await RNFS.appendFile(binFilePath, buffer.toString('binary'), 'ascii');
+      console.log(`✅ ${description} saved to ble_data.bin`);
+    } catch (error) {
+      console.error('❌ Error saving binary data to file:', error);
+    }
+  };
+
+  // 📚 Read and view content of .bin file
+  const readBinFile = async () => {
+    try {
+      const binContent = await RNFS.readFile(binFilePath, 'ascii');
+      console.log('📚 BLE Binary Data:', binContent);
+      Alert.alert(
+        'Bin File Content',
+        `Data Length: ${binContent.length} bytes`,
+      );
+    } catch (error) {
+      console.error('❌ Error reading binary file:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#007AFF" />
@@ -264,7 +293,7 @@ const BLEScan = () => {
                 devices={devices}
                 onConnect={connectToDevice}
                 onViewDetails={device =>
-                  Alert.alert('Device Details', JSON.stringify(device))
+                  Alert.alert('Device Details', JSON.stringify(device, null, 2))
                 }
                 onRead={readCharacteristic}
                 onWrite={writeCharacteristic}
@@ -281,6 +310,12 @@ const BLEScan = () => {
                 value={inputValue}
                 onChangeText={setInputValue}
               />
+
+              <TouchableOpacity
+                onPress={readBinFile}
+                style={styles.rescanButton}>
+                <Text style={styles.rescanText}>View Bin File</Text>
+              </TouchableOpacity>
 
               <Modal
                 transparent={true}

@@ -1,4 +1,4 @@
-package com.blueloc
+package com.bluelocgps
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
