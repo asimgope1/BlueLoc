@@ -22,6 +22,10 @@ import BleManager from 'react-native-ble-manager';
 import {Buffer} from 'buffer';
 import DeviceList from './DeviceList';
 import RadarAnimation from './RadarAnimation';
+import DocumentPicker, {
+  DocumentPickerResponse,
+  pick,
+} from '@react-native-documents/picker';
 
 const BLEScan = () => {
   const [scanning, setScanning] = useState(false);
@@ -357,26 +361,112 @@ const BLEScan = () => {
     }
   };
 
-  const loadFirmware = async fileName => {
-    const path = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+  const loadFirmware = async (): Promise<Buffer | null> => {
     try {
-      const binary = await RNFS.readFile(path, 'base64');
-      const buffer = Buffer.from(binary, 'base64');
+      const [res]: DocumentPickerResponse[] = await pick({
+        copyTo: 'documentDirectory', // Copy file to documentDirectory on iOS or Android
+        type: ['application/octet-stream'], // Restrict file types to binary files
+      });
+
+      console.log('📁 Document Picker Response:', res);
+
+      if (
+        !res.name ||
+        (!res.name.endsWith('.bin') && !res.name.endsWith('.hex'))
+      ) {
+        Alert.alert(
+          'Invalid file',
+          'Please select a .bin or .hex firmware file.',
+        );
+        return null;
+      }
+
+      let filePath = res.uri;
+
+      if (!filePath) {
+        Alert.alert('Error', 'Could not access the selected file.');
+        return null;
+      }
+
+      console.log('📂 Picked file URI:', filePath);
+
+      // On Android, content:// URIs can't be read directly by RNFS — need to copy it
+      if (Platform.OS === 'android' && filePath.startsWith('content://')) {
+        const destPath = `${RNFS.DocumentDirectoryPath}/${res.name}`;
+        await RNFS.copyFile(filePath, destPath); // May require permission fixes
+        filePath = destPath;
+        console.log('📥 Copied content:// to:', filePath);
+      }
+
+      const exists = await RNFS.exists(filePath);
+      if (!exists) {
+        Alert.alert('Error', 'File does not exist at the resolved path.');
+        return null;
+      }
+
+      const base64Data = await RNFS.readFile(filePath, 'base64');
+      const buffer = Buffer.from(base64Data, 'base64');
+
       return buffer;
     } catch (err) {
-      console.error('❌ Error reading firmware file:', err.message);
-      Alert.alert('Error', 'Failed to load firmware file.');
+      if (isCancel(err)) {
+        console.log('❌ User cancelled document picker');
+      } else {
+        console.error('❌ Failed to load firmware:', err.message);
+        Alert.alert('Error', 'Failed to load firmware file.');
+      }
       return null;
     }
   };
 
+  // Define UUIDs and constants
+  const SERVICE_UUID = '0000fe20-cc7a-482a-984a-7f2ed5b3e58f';
+  const UUID_BASE_ADDR = '0000fe22-8e22-4541-9d4c-21edae82ed19';
+  const UUID_CONFIRM = '0000fe23-8e22-4541-9d4c-21edae82ed19';
+  const UUID_RAW_DATA = '0000fe24-8e22-4541-9d4c-21edae82ed19';
+  const CHUNK_SIZE = 240; // Adjusted for FUOTA (Raw Data characteristic)
+
+  // Helper: Create base address command buffer (action, address, sector count)
+  const buildBaseAddressPayload = (action, address, sectors) => {
+    const buffer = Buffer.alloc(5);
+    buffer.writeUInt8(action, 0); // Action
+    buffer.writeUIntBE(address >> 0, 1, 3); // Address (big-endian 24-bit)
+    buffer.writeUInt8(sectors, 4); // Sector count
+    return buffer;
+  };
+
+  // Helper: Wait for confirmation from the device
+  const waitForConfirmation = targetDeviceId => {
+    return new Promise((resolve, reject) => {
+      const listener = BleManager.addListener(
+        'BleManagerDidUpdateValueForCharacteristic',
+        ({value, characteristic, peripheral}) => {
+          if (
+            peripheral.toLowerCase() === targetDeviceId.toLowerCase() &&
+            characteristic.toLowerCase() === UUID_CONFIRM.toLowerCase()
+          ) {
+            const [status] = value;
+            resolve(status);
+            listener.remove();
+          }
+        },
+      );
+
+      // Timeout if no response in 5s
+      setTimeout(() => {
+        listener.remove();
+        reject(new Error('Timeout waiting for confirmation indication'));
+      }, 5000);
+    });
+  };
+
+  // Main OTA function
   const startOTAUpdate = async () => {
     const deviceId = connectedDevice;
     const otaChar = characteristics.find(
       c =>
-        c.characteristic.toLowerCase() ===
-          '0000fe22-8e22-4541-9d4c-21edae82ed19' &&
-        c.service.toLowerCase() === '0000fe20-cc7a-482a-984a-7f2ed5b3e58f',
+        c.characteristic.toLowerCase() === UUID_BASE_ADDR.toLowerCase() &&
+        c.service.toLowerCase() === SERVICE_UUID.toLowerCase(),
     );
 
     if (!deviceId || !otaChar) {
@@ -384,34 +474,129 @@ const BLEScan = () => {
       return;
     }
 
-    const firmwareBuffer = await loadFirmware('firmware.bin');
+    const firmwareBuffer = await loadFirmware();
     if (!firmwareBuffer) return;
 
-    try {
-      const chunkSize = 512;
-      let offset = 0;
+    // 👉 Step A: Calculate sectors required (round up to next full 8KB)
+    const fileSize = firmwareBuffer.length;
+    const sectorSize = 8192; // 8KB
+    const sectorsNeeded = Math.ceil(fileSize / sectorSize);
 
+    // Show confirmation alert to user
+    const userConfirmed = await new Promise(resolve => {
+      Alert.alert(
+        'Firmware Info',
+        `Firmware size: ${fileSize} bytes\nSectors needed: ${sectorsNeeded}`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => resolve(false),
+          },
+          {
+            text: 'Upload',
+            onPress: () => resolve(true),
+          },
+        ],
+        {cancelable: false},
+      );
+    });
+
+    if (!userConfirmed) {
+      console.log('🚫 User cancelled firmware upload.');
+      return;
+    }
+
+    try {
+      console.log('🚀 Starting FUOTA process...');
+
+      // Step 1: Send START Application Upload command (0x02) + sectors to erase
+      const baseAddrPayload = buildBaseAddressPayload(
+        0x02,
+        0x080000,
+        sectorsNeeded,
+      );
+      await BleManager.writeWithoutResponse(
+        deviceId,
+        SERVICE_UUID,
+        UUID_BASE_ADDR,
+        Array.from(baseAddrPayload),
+      );
+      console.log('✅ Sent base address config (START upload)');
+
+      // Step 2: Enable notifications on confirmation characteristic
+      await BleManager.startNotification(deviceId, SERVICE_UUID, UUID_CONFIRM);
+      console.log('🔔 Enabled notifications on CONFIRM characteristic');
+
+      // Step 3: Wait for 0x02 confirmation
+      const confirmStatus = await waitForConfirmation(deviceId);
+      console.log('📩 Device confirmation status:', confirmStatus);
+      if (confirmStatus !== 0x02) {
+        Alert.alert('Error', 'Device not ready for file transfer');
+        return;
+      }
+
+      // Step 4: Send firmware in 240-byte chunks
+      let offset = 0;
       while (offset < firmwareBuffer.length) {
-        const chunk = firmwareBuffer.slice(offset, offset + chunkSize);
+        const chunk = firmwareBuffer.slice(offset, offset + CHUNK_SIZE);
         const byteArray = Array.from(chunk);
 
         await BleManager.writeWithoutResponse(
           deviceId,
-          otaChar.service,
-          otaChar.characteristic,
+          SERVICE_UUID,
+          UUID_RAW_DATA,
           byteArray,
-          chunkSize,
+          CHUNK_SIZE,
         );
 
-        offset += chunkSize;
+        offset += CHUNK_SIZE;
         console.log(`📦 Sent chunk: ${offset}/${firmwareBuffer.length}`);
-        await new Promise(resolve => setTimeout(resolve, 30)); // small delay
+        await new Promise(resolve => setTimeout(resolve, 50)); // Increase delay if needed
       }
 
-      Alert.alert('✅ OTA Complete', 'Firmware successfully uploaded!');
+      console.log('📨 Firmware fully transferred');
+
+      // Step 5: Send End-of-File Transfer (EOF) command (0x06)
+      const eofPayload = buildBaseAddressPayload(0x06, 0x080000, 0);
+      await BleManager.writeWithoutResponse(
+        deviceId,
+        SERVICE_UUID,
+        UUID_BASE_ADDR,
+        Array.from(eofPayload),
+      );
+      console.log('✅ Sent EOF command');
+
+      // Step 6: Send File Upload Finish (0x07)
+      const finishPayload = buildBaseAddressPayload(0x07, 0x080000, 0);
+      await BleManager.writeWithoutResponse(
+        deviceId,
+        SERVICE_UUID,
+        UUID_BASE_ADDR,
+        Array.from(finishPayload),
+      );
+      console.log('✅ Sent File Upload Finish command');
+
+      // Step 7: Wait for reboot confirmation
+      try {
+        const rebootConfirm = await waitForConfirmation(deviceId);
+        if (rebootConfirm === 0x01) {
+          Alert.alert('✅ Success', 'Device confirmed reboot.');
+        } else {
+          Alert.alert(
+            'Notice',
+            'Device responded, but no reboot confirmation.',
+          );
+        }
+      } catch (e) {
+        Alert.alert(
+          '✅ Update Complete',
+          'No final confirmation received, assuming success.',
+        );
+      }
     } catch (error) {
-      console.error('❌ OTA failed:', error);
-      Alert.alert('Error', 'OTA update failed.');
+      console.error('❌ FUOTA Error:', error);
+      Alert.alert('OTA Failed', error.message);
     }
   };
 
