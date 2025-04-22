@@ -154,36 +154,6 @@ const BLEScan = () => {
   // };
 
   // Dummy function to perform OTA update (replace with actual logic)
-  const performOTAUpdate = async (
-    deviceId,
-    otaCharacteristic,
-    firmwareData,
-  ) => {
-    try {
-      const chunkSize = 512; // Adjust based on device specs
-      let offset = 0;
-
-      // Write firmware in chunks
-      while (offset < firmwareData.length) {
-        const chunk = firmwareData.slice(offset, offset + chunkSize);
-        await BleManager.write(
-          deviceId,
-          otaCharacteristic.service,
-          otaCharacteristic.uuid,
-          chunk,
-        );
-        offset += chunkSize;
-        console.log('Sent chunk:', chunk);
-      }
-
-      // After sending all chunks, you might need to trigger a final step (e.g., activation or reboot)
-      console.log('Firmware update complete');
-      Alert.alert('Success', 'Firmware update complete!');
-    } catch (error) {
-      console.warn('Error during OTA update:', error);
-      Alert.alert('Error', 'Firmware update failed!');
-    }
-  };
 
   const handleStopScan = () => {
     console.log('Scan stopped');
