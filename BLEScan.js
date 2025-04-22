@@ -37,6 +37,8 @@ const BLEScan = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0); // percentage 0–100
 
   const {width: WIDTH} = Dimensions.get('window');
 
@@ -483,30 +485,26 @@ const BLEScan = () => {
     try {
       console.log('🚀 Starting FUOTA process...');
 
-      const validSectors = Math.min(Math.max(sectorsNeeded, 1), 63);
+      // const validSectors = Math.min(Math.max(sectorsNeeded, 1), 63);
 
-      const erasePayload = buildBaseAddressPayload(
-        0x02,
-        0x080000,
-        validSectors,
-      );
+      // const erasePayload = buildBaseAddressPayload(
+      //   0x02,
+      //   0x080000,
+      //   validSectors,
+      // );
 
-      // Send erase command over BLE
-      await BleManager.writeWithoutResponse(
-        deviceId,
-        SERVICE_UUID,
-        UUID_BASE_ADDR,
-        Array.from(erasePayload),
-      );
+      // // Send erase command over BLE
+      // await BleManager.writeWithoutResponse(
+      //   deviceId,
+      //   SERVICE_UUID,
+      //   UUID_BASE_ADDR,
+      //   Array.from(erasePayload),
+      // );
 
-      console.log(`🧹 Sent erase command for ${validSectors} sectors`);
+      // console.log(`🧹 Sent erase command for ${validSectors} sectors`);
 
       // Step 1: Send START Application Upload command (0x02) + sectors to erase
-      const baseAddrPayload = buildBaseAddressPayload(
-        0x02,
-        0x080000,
-        sectorsNeeded,
-      );
+      const baseAddrPayload = buildBaseAddressPayload(0x02, 0x080000, 0);
       await BleManager.writeWithoutResponse(
         deviceId,
         SERVICE_UUID,
@@ -527,6 +525,7 @@ const BLEScan = () => {
         return;
       }
 
+      setUploading(true);
       // Step 4: Send firmware in 240-byte chunks
       let offset = 0;
       while (offset < firmwareBuffer.length) {
@@ -542,9 +541,16 @@ const BLEScan = () => {
         );
 
         offset += CHUNK_SIZE;
+
+        const progressPercent = Math.min(
+          100,
+          Math.floor((offset / firmwareBuffer.length) * 100),
+        );
+        setUploadProgress(progressPercent);
         console.log(`📦 Sent chunk: ${offset}/${firmwareBuffer.length}`);
         await new Promise(resolve => setTimeout(resolve, 50)); // Increase delay if needed
       }
+      setUploading(false);
 
       console.log('📨 Firmware fully transferred');
 
@@ -586,6 +592,7 @@ const BLEScan = () => {
         );
       }
     } catch (error) {
+      setUploading(false);
       console.error('❌ FUOTA Error:', error);
       Alert.alert('OTA Failed', error.message);
     }
@@ -670,6 +677,59 @@ const BLEScan = () => {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal visible={uploading} transparent animationType="fade">
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}>
+          <View
+            style={{
+              backgroundColor: 'white',
+              padding: 24,
+              borderRadius: 12,
+              width: '80%',
+              alignItems: 'center',
+            }}>
+            <Text
+              style={{
+                fontSize: 16,
+                fontWeight: 'bold',
+                marginBottom: 10,
+                color: 'black',
+              }}>
+              Uploading firmware...
+            </Text>
+            <ActivityIndicator
+              size="large"
+              color="#007bff"
+              style={{marginBottom: 12}}
+            />
+            <View
+              style={{
+                width: '100%',
+                height: 10,
+                backgroundColor: '#eee',
+                borderRadius: 6,
+              }}>
+              <View
+                style={{
+                  width: `${uploadProgress}%`,
+                  height: '100%',
+                  backgroundColor: '#007bff',
+                  borderRadius: 6,
+                }}
+              />
+            </View>
+            <Text style={{marginTop: 10, color: 'black'}}>
+              {uploadProgress}%
+            </Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
