@@ -103,7 +103,7 @@ const BLEScan = () => {
   const handleDiscoverPeripheral = async peripheral => {
     const name =
       peripheral.name || peripheral.advertising?.localName || 'Unknown';
-    if (name.includes('p2pS_9D')) {
+    if (name.includes('p2')) {
       console.log('🛰️ Matched Device:', JSON.stringify(peripheral, null, 2));
     }
 
@@ -450,7 +450,10 @@ const BLEScan = () => {
     // 👉 Step A: Calculate sectors required (round up to next full 8KB)
     const fileSize = firmwareBuffer.length;
     const sectorSize = 8192; // 8KB
-    const sectorsNeeded = Math.ceil(fileSize / sectorSize);
+    const sectorsNeeded = Math.ceil(fileSize / sectorSize) + 4;
+    console.log(
+      `📏 File size: ${fileSize} bytes, Sectors needed: ${sectorsNeeded}`,
+    );
 
     // Show confirmation alert to user
     const userConfirmed = await new Promise(resolve => {
@@ -479,6 +482,24 @@ const BLEScan = () => {
 
     try {
       console.log('🚀 Starting FUOTA process...');
+
+      const validSectors = Math.min(Math.max(sectorsNeeded, 1), 63);
+
+      const erasePayload = buildBaseAddressPayload(
+        0x02,
+        0x080000,
+        validSectors,
+      );
+
+      // Send erase command over BLE
+      await BleManager.writeWithoutResponse(
+        deviceId,
+        SERVICE_UUID,
+        UUID_BASE_ADDR,
+        Array.from(erasePayload),
+      );
+
+      console.log(`🧹 Sent erase command for ${validSectors} sectors`);
 
       // Step 1: Send START Application Upload command (0x02) + sectors to erase
       const baseAddrPayload = buildBaseAddressPayload(
