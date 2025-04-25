@@ -118,45 +118,6 @@ const BLEScan = () => {
     });
   };
 
-  // const handleDiscoverPeripheral = async peripheral => {
-  //   // if (peripheral?.name !== 'HR_9D') return;
-  //   //
-  //   console.log('🛰️ Found HR_9D:', peripheral);
-  //   setDevices([peripheral]);
-
-  //   try {
-  //     // await BleManager.connect(peripheral.id);
-  //     // console.log('✅ Connected to HR_9D');
-
-  //     // 🔧 Small delay before retrieving services
-  //     await new Promise(resolve => setTimeout(resolve, 1000));
-
-  //     const servicesData = await BleManager.retrieveServices(peripheral.id);
-  //     console.log('📡 All Services:', servicesData.services);
-  //     console.log('🧬 All Characteristics:', servicesData.characteristics);
-
-  //     const otaCandidates = servicesData.services.filter(service =>
-  //       /ota|dfu|update/i.test(service.uuid),
-  //     );
-
-  //     if (otaCandidates.length > 0) {
-  //       console.log('🔥 Possible OTA Services:', otaCandidates);
-  //       Alert.alert('OTA Service Found', JSON.stringify(otaCandidates));
-  //     } else {
-  //       console.log('❌ No obvious OTA service found');
-  //       Alert.alert(
-  //         'No OTA Service Found',
-  //         'Could not detect OTA update support.',
-  //       );
-  //     }
-  //   } catch (error) {
-  //     console.error('Connection or retrieval failed:', error);
-  //     Alert.alert('Error', 'Failed to connect or retrieve services.');
-  //   }
-  // };
-
-  // Dummy function to perform OTA update (replace with actual logic)
-
   const handleStopScan = () => {
     console.log('Scan stopped');
     setScanning(false);
@@ -485,25 +446,6 @@ const BLEScan = () => {
     try {
       console.log('🚀 Starting FUOTA process...');
 
-      // const validSectors = Math.min(Math.max(sectorsNeeded, 1), 63);
-
-      // const erasePayload = buildBaseAddressPayload(
-      //   0x02,
-      //   0x080000,
-      //   validSectors,
-      // );
-
-      // // Send erase command over BLE
-      // await BleManager.writeWithoutResponse(
-      //   deviceId,
-      //   SERVICE_UUID,
-      //   UUID_BASE_ADDR,
-      //   Array.from(erasePayload),
-      // );
-
-      // console.log(`🧹 Sent erase command for ${validSectors} sectors`);
-
-      // Step 1: Send START Application Upload command (0x02) + sectors to erase
       const baseAddrPayload = buildBaseAddressPayload(0x02, 0x080000, 0);
       await BleManager.writeWithoutResponse(
         deviceId,
