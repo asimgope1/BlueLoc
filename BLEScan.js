@@ -27,7 +27,7 @@ import DocumentPicker, {
   pick,
 } from '@react-native-documents/picker';
 
-const BLEScan = () => {
+const BLEScan = ({route}) => {
   const [scanning, setScanning] = useState(false);
   const [isSearching, setIsSearching] = useState(true);
   const [devices, setDevices] = useState([]);
@@ -43,6 +43,7 @@ const BLEScan = () => {
   const {width: WIDTH} = Dimensions.get('window');
 
   useEffect(() => {
+    console.log('objectifyy in ota', route.params);
     const enableBluetooth = async () => {
       try {
         await BleManager.enableBluetooth();

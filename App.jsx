@@ -10,6 +10,7 @@ import MapView from './MapView';
 import IndoorMapScreen from './IndoorMapScreen';
 import NearbyDevices from './NearbyDevices';
 import BLEScan from './BLEScan';
+import Home from './Home';
 
 const Stack = createStackNavigator();
 
@@ -19,7 +20,7 @@ const App = () => {
       <NavigationContainer>
         <SafeAreaView style={styles.container}>
           <Stack.Navigator
-            initialRouteName="BLEScan"
+            initialRouteName="Home"
             screenOptions={{
               headerStyle: {
                 backgroundColor: '#007AFF',
@@ -32,6 +33,11 @@ const App = () => {
             <Stack.Screen
               name="BLEScanner"
               component={BLEScanner}
+              options={{headerShown: false}}
+            />
+            <Stack.Screen
+              name="Home"
+              component={Home}
               options={{headerShown: false}}
             />
             <Stack.Screen
@@ -64,7 +70,7 @@ const App = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: 'black',
   },
 });
 
