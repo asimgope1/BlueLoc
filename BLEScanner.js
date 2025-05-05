@@ -16,6 +16,7 @@ import {
   ScrollView,
   Modal,
   TextInput,
+  BackHandler,
 } from 'react-native';
 import DeviceList1 from './DeviceList1';
 import RadarAnimation from './RadarAnimation';
@@ -31,7 +32,7 @@ import {
   stopConnecting,
 } from './bluetoothSlice';
 
-const BluetoothScanner = () => {
+const BluetoothScanner = ({navigation}) => {
   const [scanning, setScanning] = useState(false);
   const [isSearching, setIsSearching] = useState(true);
   const [devices, setDevices] = useState([]);
@@ -43,6 +44,30 @@ const BluetoothScanner = () => {
   const [selectedCharacteristic, setSelectedCharacteristic] = useState(null); // Selected characteristic for writing
 
   const {width: WIDTH} = Dimensions.get('window');
+
+  useEffect(() => {
+    const backAction = () => {
+      Alert.alert('Exit Writing', 'Are you sure you want to exit?', [
+        {
+          text: 'Cancel',
+          onPress: () => null,
+          style: 'cancel',
+        },
+        {
+          text: 'Yes',
+          onPress: () => navigation.goBack(),
+        },
+      ]);
+      return true; // prevent default back behavior
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction,
+    );
+
+    return () => backHandler.remove(); // cleanup
+  }, []);
 
   useEffect(() => {
     const enableBluetooth = async () => {

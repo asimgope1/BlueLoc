@@ -16,6 +16,7 @@ import {
   ScrollView,
   Modal,
   TextInput,
+  BackHandler,
 } from 'react-native';
 import RNFS from 'react-native-fs';
 import BleManager from 'react-native-ble-manager';
@@ -27,7 +28,7 @@ import DocumentPicker, {
   pick,
 } from '@react-native-documents/picker';
 
-const BLEScan = ({route}) => {
+const BLEScan = ({route, navigation}) => {
   const [scanning, setScanning] = useState(false);
   const [isSearching, setIsSearching] = useState(true);
   const [devices, setDevices] = useState([]);
@@ -41,6 +42,30 @@ const BLEScan = ({route}) => {
   const [uploadProgress, setUploadProgress] = useState(0); // percentage 0–100
 
   const {width: WIDTH} = Dimensions.get('window');
+
+  useEffect(() => {
+    const backAction = () => {
+      Alert.alert('Exit Updating', 'Are you sure you want to exit?', [
+        {
+          text: 'Cancel',
+          onPress: () => null,
+          style: 'cancel',
+        },
+        {
+          text: 'Yes',
+          onPress: () => navigation.goBack(),
+        },
+      ]);
+      return true; // prevent default back behavior
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      'hardwareBackPress',
+      backAction,
+    );
+
+    return () => backHandler.remove(); // cleanup
+  }, []);
 
   useEffect(() => {
     console.log('objectifyy in ota', route.params);

@@ -74,11 +74,18 @@ const DeviceList1 = ({
       });
 
       // Safely update the input fields
+      const sanitizedUrl = url.trim(); // Removes leading/trailing spaces
       setInputValues(prev => ({
         ...prev,
-        '0001': url ? url.slice(0, 19) : '', // URL first part
-        '0002': url ? url.slice(19, 38) : '', // URL second part
-        '0003': url ? url.slice(38) : '', // URL third part
+        '0001': sanitizedUrl ? sanitizedUrl.slice(0, 19) : '',
+        '0002':
+          sanitizedUrl && sanitizedUrl.length > 19
+            ? sanitizedUrl.slice(19, 38)
+            : '',
+        '0003':
+          sanitizedUrl && sanitizedUrl.length > 38
+            ? sanitizedUrl.slice(38)
+            : '',
         '0004': apn ? apn.slice(0, 19) : '', // APN first part
         '0005': apn ? apn.slice(19, 38) : '', // APN second part
         '0006': topic ? topic.slice(0, 19) : '', // TOPIC field
@@ -104,8 +111,12 @@ const DeviceList1 = ({
   );
 
   const handleDisconnect = () => {
+    setIsLoading(true);
     setIsConnected(false);
     Alert.alert('Disconnected', 'The device has been disconnected.');
+    setTimeout(() => {
+      setIsLoading(false);
+    }, 2000);
   };
 
   useEffect(() => {
@@ -170,18 +181,18 @@ const DeviceList1 = ({
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   const handleTextInputChange = text => {
-    // Remove any leading/trailing spaces and limit to 57 bytes before slicing
     const limitedText = text.trim().slice(0, 57);
 
-    let chunk1 = limitedText.slice(0, 19);
-    let chunk2 = limitedText.slice(19, 38);
-    let chunk3 = limitedText.slice(38, 57);
+    const chunk1 = limitedText.slice(0, 19);
+    const chunk2 = limitedText.slice(19, 38);
+    const chunk3 = limitedText.slice(38, 57);
 
     setInputValues(prev => ({
       ...prev,
       '0001': chunk1,
       '0002': chunk2,
       '0003': chunk3,
+      url: limitedText, // Optional: helpful for display
     }));
 
     if (text.length > 57) {
@@ -191,78 +202,122 @@ const DeviceList1 = ({
 
   const sendData = async () => {
     setIsLoading(true);
+
     if (!connectedDevice) {
       console.warn('No connected device. Cannot send data.');
+      setIsLoading(false);
       return;
     }
 
-    const valuesToSend = isConnected
-      ? inputValues
-      : {
-          '0001': 'www.google.com'.slice(0, 19),
-          '0002': 'www.google.com'.slice(19, 38),
-          '0003': 'www.google.com'.slice(38, 57),
-          '0004': 'testapn',
-          '0006': 'testtopic',
-          '0007': '4', // Sleep time default value
-          '0008': '8001', // Port value default
-          '0009': '2', // Data rate default
-        };
+    const defaultValues = {
+      url: '',
+      '0004': '',
+      '0005': '',
+      '0006': '',
+      '0007': '4',
+      '0008': '',
+      '0009': '',
+    };
+
+    const urlToUse = isConnected ? inputValues.url : defaultValues.url;
+    const valuesToSend = {};
+
+    if (urlToUse.length > 0) valuesToSend['0001'] = urlToUse.slice(0, 19);
+    if (urlToUse.length > 19) valuesToSend['0002'] = urlToUse.slice(19, 38);
+    if (urlToUse.length > 38) valuesToSend['0003'] = urlToUse.slice(38, 57);
+
+    ['0004', '0005', '0006', '0007', '0008', '0009'].forEach(key => {
+      if (key === '0004') {
+        const apnInput = inputValues['0004'] || '';
+        if (apnInput.length > 0) {
+          valuesToSend['0004'] = apnInput.slice(0, 19);
+          if (apnInput.length > 19) {
+            valuesToSend['0005'] = apnInput.slice(19, 38);
+          }
+        }
+      } else if (key === '0005') {
+        // handled above
+      } else {
+        valuesToSend[key] =
+          isConnected && inputValues[key]
+            ? inputValues[key]
+            : defaultValues[key];
+      }
+    });
 
     const combinedURL =
       (valuesToSend['0001'] || '') +
       (valuesToSend['0002'] || '') +
       (valuesToSend['0003'] || '');
-    console.log('Combined URL to send:', combinedURL);
+    console.log('✅ Final Combined URL:', combinedURL);
 
-    const characteristicKeys = Object.keys(valuesToSend);
+    try {
+      for (const [characteristicKey, value] of Object.entries(valuesToSend)) {
+        const bufferValue = Buffer.from(value ?? '', 'utf-8');
+        const characteristic = characteristics.find(
+          c => c.characteristic === characteristicKey,
+        );
+        const service = services.find(s => s.uuid === characteristic?.service);
 
-    for (const characteristicKey of characteristicKeys) {
-      const value = valuesToSend[characteristicKey] || '';
-      const bufferValue = Buffer.from(value, 'utf-8');
-
-      console.log('Preparing to send data:', {
-        characteristicKey,
-        value,
-        bufferValue: bufferValue.toString('hex'),
-      });
-
-      const characteristic = characteristics.find(
-        c => c.characteristic === characteristicKey,
-      );
-      const service = services.find(s => s.uuid === characteristic?.service);
-
-      if (service && characteristic) {
-        try {
-          await onWrite(
-            characteristicKey,
-            connectedDevice,
-            service.uuid,
-            bufferValue,
+        if (!service || !characteristic) {
+          console.warn(
+            `Service or characteristic not found for key: ${characteristicKey}`,
           );
-          console.log(
-            `Data successfully written for characteristic ${characteristicKey}`,
-          );
-          await delay(15000);
-          setIsLoading(false);
-        } catch (error) {
-          setIsLoading(false);
+          continue;
+        }
+
+        console.log('📤 Writing:', {
+          key: characteristicKey,
+          value,
+          hex: bufferValue.toString('hex'),
+        });
+
+        let success = false;
+        let attempts = 0;
+        const maxRetries = 3;
+
+        // Retry mechanism
+        while (!success && attempts < maxRetries) {
+          try {
+            await onWrite(
+              characteristicKey,
+              connectedDevice,
+              service.uuid,
+              bufferValue,
+            );
+            console.log(
+              `✅ Wrote ${characteristicKey} on attempt ${attempts + 1}`,
+            );
+            success = true;
+          } catch (err) {
+            console.error(
+              `❌ Failed to write ${characteristicKey} (Attempt ${
+                attempts + 1
+              }):`,
+              err,
+            );
+            attempts++;
+            await delay(1000); // short delay before retry
+          }
+        }
+
+        if (!success) {
           console.error(
-            `Failed to write data for characteristic ${characteristicKey}:`,
-            error,
+            `❌ Giving up on writing ${characteristicKey} after ${maxRetries} attempts.`,
           );
         }
-      } else {
-        setIsLoading(false);
-        console.warn(
-          `Service or characteristic not found for key: ${characteristicKey}`,
-        );
-      }
-    }
 
-    setInputValues({});
-    setModalVisible(false);
+        await delay(1000); // Shorter delay between writes
+      }
+    } catch (err) {
+      console.error('❌ General error during write process:', err);
+    } finally {
+      setIsLoading(false);
+      setInputValues({});
+      setModalVisible(false);
+    }
   };
+
   console.log('setQRCodeScanner', scannedCode);
   console.log('inputValues', inputValues);
   return (
@@ -323,11 +378,7 @@ const DeviceList1 = ({
             <TextInput
               style={styles.input}
               placeholder="Enter URL"
-              value={
-                (inputValues['0001'] || '') +
-                (inputValues['0002'] || '') +
-                (inputValues['0003'] || '')
-              }
+              value={inputValues.url || ''}
               onChangeText={handleTextInputChange}
               maxLength={57}
             />
@@ -436,16 +487,18 @@ const DeviceList1 = ({
               maxLength={19}
             />
 
-            <TouchableOpacity style={styles.sendButton} onPress={sendData}>
-              {isLoading == true ? (
-                <></>
-              ) : (
-                <Text style={styles.buttonText}>Send Data</Text>
-              )}
+            <TouchableOpacity
+              style={styles.sendButton}
+              disabled={isLoading}
+              onPress={sendData}>
+              <Text style={styles.buttonText}>
+                {isLoading ? 'Sending Data' : 'Send Data'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
       </Modal>
+
       <Modal transparent={true} animationType="fade" visible={isLoading}>
         <View style={styles.modalOverlay}>
           <ActivityIndicator size="large" color="#007AFF" />
