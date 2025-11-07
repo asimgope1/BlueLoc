@@ -199,13 +199,11 @@ const BluetoothScanner = ({navigation}) => {
   const fetchServices = useCallback(async deviceId => {
     try {
       const servicesData = await BleManager.retrieveServices(deviceId);
-      console.log('servicesData', servicesData);
-      console.log('All characteristics:', servicesData.characteristics);
-      console.log('All characteristics (including 1800/1801):', JSON.stringify(servicesData.characteristics, null, 2));
-
       const filteredCharacteristics = servicesData.characteristics.filter(
         char => char.service !== '1800' && char.service !== '1801',
       );
+      console.log('Services:', servicesData.services);
+      console.log('Characteristics:', filteredCharacteristics);
       setServices(servicesData.services);
       setCharacteristics(filteredCharacteristics);
     } catch (error) {
@@ -269,9 +267,7 @@ const BluetoothScanner = ({navigation}) => {
     return Array.from(str).map(char => char.charCodeAt(0));
   };
 
-  console.log('sacn devices', devices);
-  console.log('Scan devices:', JSON.stringify(devices, null, 2));
-
+  console.log('sacn devices', devices[0]);
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#007AFF" />

@@ -9,6 +9,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  ScrollView,
 } from 'react-native';
 import {Buffer} from 'buffer';
 import DropDownPicker from 'react-native-dropdown-picker';
@@ -202,13 +203,13 @@ const DeviceList1 = ({
 
   const sendData = async () => {
     setIsLoading(true);
-
+  
     if (!connectedDevice) {
       console.warn('No connected device. Cannot send data.');
       setIsLoading(false);
       return;
     }
-
+  
     const defaultValues = {
       url: '',
       '0004': '',
@@ -217,40 +218,50 @@ const DeviceList1 = ({
       '0007': '4',
       '0008': '',
       '0009': '',
+      '0010': '',
+      '0011': '',
+      '0012': '',
+      '0013': '',
+      '0014': '',
+      '0015': '',
     };
-
-    const urlToUse = isConnected ? inputValues.url : defaultValues.url;
+  
+    const urlToUse = isConnected ? inputValues.url || '' : defaultValues.url;
     const valuesToSend = {};
-
+  
+    // --- Split URL into chunks (0001–0003)
     if (urlToUse.length > 0) valuesToSend['0001'] = urlToUse.slice(0, 19);
     if (urlToUse.length > 19) valuesToSend['0002'] = urlToUse.slice(19, 38);
     if (urlToUse.length > 38) valuesToSend['0003'] = urlToUse.slice(38, 57);
-
-    ['0004', '0005', '0006', '0007', '0008', '0009'].forEach(key => {
-      if (key === '0004') {
-        const apnInput = inputValues['0004'] || '';
-        if (apnInput.length > 0) {
-          valuesToSend['0004'] = apnInput.slice(0, 19);
-          if (apnInput.length > 19) {
-            valuesToSend['0005'] = apnInput.slice(19, 38);
-          }
-        }
-      } else if (key === '0005') {
-        // handled above
-      } else {
-        valuesToSend[key] =
-          isConnected && inputValues[key]
-            ? inputValues[key]
-            : defaultValues[key];
-      }
+  
+    // --- Handle APN (0004–0005)
+    const apnInput = inputValues['0004'] || '' + (inputValues['0005'] || '');
+    if (apnInput.length > 0) {
+      valuesToSend['0004'] = apnInput.slice(0, 19);
+      if (apnInput.length > 19) valuesToSend['0005'] = apnInput.slice(19, 38);
+    }
+  
+    // --- Handle remaining fields (0006–0009)
+    ['0006', '0007', '0008', '0009'].forEach(key => {
+      valuesToSend[key] =
+        isConnected && inputValues[key]
+          ? inputValues[key]
+          : defaultValues[key];
     });
-
+  
+    // --- Handle phone numbers (0010–0015)
+    for (let i = 10; i <= 15; i++) {
+      const key = `00${i}`;
+      valuesToSend[key] =
+        isConnected && inputValues[key] ? inputValues[key] : defaultValues[key];
+    }
+  
     const combinedURL =
       (valuesToSend['0001'] || '') +
       (valuesToSend['0002'] || '') +
       (valuesToSend['0003'] || '');
     console.log('✅ Final Combined URL:', combinedURL);
-
+  
     try {
       for (const [characteristicKey, value] of Object.entries(valuesToSend)) {
         const bufferValue = Buffer.from(value ?? '', 'utf-8');
@@ -258,25 +269,24 @@ const DeviceList1 = ({
           c => c.characteristic === characteristicKey,
         );
         const service = services.find(s => s.uuid === characteristic?.service);
-
+  
         if (!service || !characteristic) {
           console.warn(
             `Service or characteristic not found for key: ${characteristicKey}`,
           );
           continue;
         }
-
+  
         console.log('📤 Writing:', {
           key: characteristicKey,
           value,
           hex: bufferValue.toString('hex'),
         });
-
+  
         let success = false;
         let attempts = 0;
         const maxRetries = 3;
-
-        // Retry mechanism
+  
         while (!success && attempts < maxRetries) {
           try {
             await onWrite(
@@ -297,17 +307,17 @@ const DeviceList1 = ({
               err,
             );
             attempts++;
-            await delay(1000); // short delay before retry
+            await delay(1000);
           }
         }
-
+  
         if (!success) {
           console.error(
             `❌ Giving up on writing ${characteristicKey} after ${maxRetries} attempts.`,
           );
         }
-
-        await delay(1000); // Shorter delay between writes
+  
+        await delay(1000);
       }
     } catch (err) {
       console.error('❌ General error during write process:', err);
@@ -317,6 +327,7 @@ const DeviceList1 = ({
       setModalVisible(false);
     }
   };
+  
 
   console.log('setQRCodeScanner', scannedCode);
   console.log('inputValues', inputValues);
@@ -371,6 +382,9 @@ const DeviceList1 = ({
               }}>
               <Text style={styles.buttonText}>Open QR Code Scanner</Text>
             </TouchableOpacity> */}
+
+
+<ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
             <Text style={styles.modalText}>Write Characteristic Values</Text>
 
             {/* TextInput for Characteristics 0001, 0002, 0003 */}
@@ -487,6 +501,80 @@ const DeviceList1 = ({
               maxLength={19}
             />
 
+<Text style={styles.header}>Phone Number 1</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0010'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0010': text}))
+  }
+  maxLength={13}
+/>
+<Text style={styles.header}>Phone Number 2</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0011'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0011': text}))
+  }
+  maxLength={13}
+/>
+
+<Text style={styles.header}>Phone Number 3</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0012'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0012': text}))
+  }
+  maxLength={13}
+/>
+<Text style={styles.header}>Phone Number 4</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0013'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0013': text}))
+  }
+  maxLength={13}
+/>
+<Text style={styles.header}>Phone Number 5</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0014'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0014': text}))
+  }
+  maxLength={13}
+/>
+<Text style={styles.header}>Phone Number 6</Text>
+
+<TextInput
+  style={styles.input}
+  placeholder="Enter Phone Number with country code"
+  keyboardType="phone-pad"
+  value={inputValues['0015'] || ''}
+  onChangeText={text =>
+    setInputValues(prev => ({...prev, '0015': text}))
+  }
+  maxLength={13}
+/>
+
             <TouchableOpacity
               style={styles.sendButton}
               disabled={isLoading}
@@ -495,6 +583,7 @@ const DeviceList1 = ({
                 {isLoading ? 'Sending Data' : 'Send Data'}
               </Text>
             </TouchableOpacity>
+            </ScrollView>
           </View>
         )}
       </Modal>
@@ -617,6 +706,8 @@ const styles = StyleSheet.create({
   sendButton: {
     backgroundColor: '#007AFF',
     padding: 10,
+    width: '80%',
+    alignSelf: 'center',
     borderRadius: 5,
     marginTop: 15,
     alignItems: 'center',
