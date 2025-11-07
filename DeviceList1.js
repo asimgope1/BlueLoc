@@ -9,10 +9,22 @@ import {
   Modal,
   TextInput,
   Alert,
+  ScrollView,
 } from 'react-native';
 import {Buffer} from 'buffer';
 import DropDownPicker from 'react-native-dropdown-picker';
 import QRSCANNER from './QRSCANNER';
+
+const NALCO_COLORS = {
+  primary: '#004080',
+  secondary: '#0078D7',
+  background: '#F5F7FA',
+  card: '#FFFFFF',
+  text: '#1E1E1E',
+  border: '#D0D7E2',
+  success: '#28A745',
+  danger: '#C62828',
+};
 
 const DeviceList1 = ({
   devices,
@@ -30,76 +42,32 @@ const DeviceList1 = ({
   const [readValue, setReadValue] = useState(null);
   const [charDropdownOpen, setCharDropdownOpen] = useState(false);
   const [writeValue, setWriteValue] = useState(4);
-  const [isConnected, setIsConnected] = useState(true); // Track connection status
+  const [isConnected, setIsConnected] = useState(true);
   const [QRCodeScanner, setQRCodeScanner] = useState(false);
   const [scannedCode, setScannedCode] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleScan = scannedData => {
-    console.log('Scanned Data:', scannedData); // Log the scanned data to check its type
+    try {
+      if (typeof scannedData === 'string') scannedData = JSON.parse(scannedData);
+      const {url, apn, topic, sleepTime, port, dataRate, scannedData: deviceId} = scannedData;
 
-    // Attempt to parse the scannedData if it's a string
-    if (typeof scannedData === 'string') {
-      try {
-        scannedData = JSON.parse(scannedData); // Parse if it's a stringified object
-        console.log('Parsed Scanned Data:', scannedData);
-      } catch (e) {
-        console.error('Failed to parse scanned data:', e);
-        Alert.alert('Error', 'Invalid QR code data.');
-        return;
-      }
-    }
-
-    // Check if scannedData is an object and contains the expected keys
-    if (scannedData && typeof scannedData === 'object') {
-      const {
-        url,
-        apn,
-        topic,
-        sleepTime,
-        port,
-        dataRate,
-        scannedData: deviceId, // Renaming scannedData to deviceId to avoid conflict
-      } = scannedData;
-
-      // Log the extracted values to ensure they are correct
-      console.log('Extracted values:', {
-        url,
-        apn,
-        topic,
-        sleepTime,
-        port,
-        dataRate,
-        deviceId,
-      });
-
-      // Safely update the input fields
-      const sanitizedUrl = url.trim(); // Removes leading/trailing spaces
       setInputValues(prev => ({
         ...prev,
-        '0001': sanitizedUrl ? sanitizedUrl.slice(0, 19) : '',
-        '0002':
-          sanitizedUrl && sanitizedUrl.length > 19
-            ? sanitizedUrl.slice(19, 38)
-            : '',
-        '0003':
-          sanitizedUrl && sanitizedUrl.length > 38
-            ? sanitizedUrl.slice(38)
-            : '',
-        '0004': apn ? apn.slice(0, 19) : '', // APN first part
-        '0005': apn ? apn.slice(19, 38) : '', // APN second part
-        '0006': topic ? topic.slice(0, 19) : '', // TOPIC field
-        '0007': sleepTime ? sleepTime.toString() : '', // Sleep Time field
-        '0008': port ? port.slice(0, 19) : '', // PORT field
-        '0009': dataRate ? dataRate.slice(0, 19) : '', // Data rate field
-        scannedData: deviceId || '', // Device ID (if needed)
+        '0001': url?.slice(0, 19) || '',
+        '0002': url?.slice(19, 38) || '',
+        '0003': url?.slice(38) || '',
+        '0004': apn?.slice(0, 19) || '',
+        '0005': apn?.slice(19, 38) || '',
+        '0006': topic?.slice(0, 19) || '',
+        '0007': sleepTime?.toString() || '',
+        '0008': port || '',
+        '0009': dataRate || '',
+        scannedData: deviceId || '',
       }));
 
-      // Optionally close the QR code scanner modal
       setQRCodeScanner(false);
-      // setModalVisible(false);
-    } else {
-      console.error('Invalid QR code data:', scannedData);
+    } catch (e) {
       Alert.alert('Error', 'Invalid QR code data.');
     }
   };
@@ -114,100 +82,31 @@ const DeviceList1 = ({
     setIsLoading(true);
     setIsConnected(false);
     Alert.alert('Disconnected', 'The device has been disconnected.');
-    setTimeout(() => {
-      setIsLoading(false);
-    }, 2000);
+    setTimeout(() => setIsLoading(false), 2000);
   };
 
   useEffect(() => {
-    if (connectedDevice) {
-      setIsConnected(true);
-    } else {
-      handleDisconnect();
-    }
+    connectedDevice ? setIsConnected(true) : handleDisconnect();
   }, [connectedDevice]);
-
-  const renderItem = ({item}) => {
-    return (
-      <View style={styles.deviceCard}>
-        <Text style={styles.deviceText}>ID: {item.id}</Text>
-        <Text style={styles.deviceText}>RSSI: {item.rssi}</Text>
-        <Text style={styles.deviceText}>
-          Name: {item.advertising.localName || 'Unknown'}
-        </Text>
-
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.connectButton}
-            onPress={() => onConnect(item)}
-            accessibilityLabel={`Connect to ${
-              item.advertising.localName || 'Unknown'
-            }`}>
-            {isConnecting && connectedDevice === item.id ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.buttonText}>
-                {connectedDevice === item.id ? 'Disconnect' : 'Connect'}
-              </Text>
-            )}
-          </TouchableOpacity>
-
-          {/* <TouchableOpacity
-            style={styles.detailsButton}
-            onPress={() => onViewDetails(item)}
-            accessibilityLabel={`View details for ${
-              item.advertising.localName || 'Unknown'
-            }`}>
-            <Text style={styles.buttonText}>View Details</Text>
-          </TouchableOpacity> */}
-        </View>
-
-        {connectedDevice === item.id && (
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={styles.writeButton}
-              onPress={() => setModalVisible(true)}
-              accessibilityLabel={`Write characteristic for ${
-                item.advertising.localName || 'Unknown'
-              }`}>
-              <Text style={styles.buttonText}>Write</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-    );
-  };
 
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
   const handleTextInputChange = text => {
-    const limitedText = text.trim().slice(0, 57);
-
-    const chunk1 = limitedText.slice(0, 19);
-    const chunk2 = limitedText.slice(19, 38);
-    const chunk3 = limitedText.slice(38, 57);
-
+    const limited = text.trim().slice(0, 57);
     setInputValues(prev => ({
       ...prev,
-      '0001': chunk1,
-      '0002': chunk2,
-      '0003': chunk3,
-      url: limitedText, // Optional: helpful for display
+      '0001': limited.slice(0, 19),
+      '0002': limited.slice(19, 38),
+      '0003': limited.slice(38, 57),
+      url: limited,
     }));
-
-    if (text.length > 57) {
+    if (text.length > 57)
       Alert.alert('Error', 'Combined URL exceeds maximum length of 57 bytes.');
-    }
   };
 
   const sendData = async () => {
     setIsLoading(true);
-
-    if (!connectedDevice) {
-      console.warn('No connected device. Cannot send data.');
-      setIsLoading(false);
-      return;
-    }
+    if (!connectedDevice) return setIsLoading(false);
 
     const defaultValues = {
       url: '',
@@ -217,100 +116,58 @@ const DeviceList1 = ({
       '0007': '4',
       '0008': '',
       '0009': '',
+      '0010': '',
+      '0011': '',
+      '0012': '',
+      '0013': '',
+      '0014': '',
+      '0015': '',
     };
 
-    const urlToUse = isConnected ? inputValues.url : defaultValues.url;
+    const urlToUse = isConnected ? inputValues.url || '' : defaultValues.url;
     const valuesToSend = {};
 
     if (urlToUse.length > 0) valuesToSend['0001'] = urlToUse.slice(0, 19);
     if (urlToUse.length > 19) valuesToSend['0002'] = urlToUse.slice(19, 38);
     if (urlToUse.length > 38) valuesToSend['0003'] = urlToUse.slice(38, 57);
 
-    ['0004', '0005', '0006', '0007', '0008', '0009'].forEach(key => {
-      if (key === '0004') {
-        const apnInput = inputValues['0004'] || '';
-        if (apnInput.length > 0) {
-          valuesToSend['0004'] = apnInput.slice(0, 19);
-          if (apnInput.length > 19) {
-            valuesToSend['0005'] = apnInput.slice(19, 38);
-          }
-        }
-      } else if (key === '0005') {
-        // handled above
-      } else {
-        valuesToSend[key] =
-          isConnected && inputValues[key]
-            ? inputValues[key]
-            : defaultValues[key];
-      }
+    const apnInput = (inputValues['0004'] || '') + (inputValues['0005'] || '');
+    if (apnInput.length > 0) {
+      valuesToSend['0004'] = apnInput.slice(0, 19);
+      if (apnInput.length > 19) valuesToSend['0005'] = apnInput.slice(19, 38);
+    }
+
+    ['0006', '0007', '0008', '0009'].forEach(key => {
+      valuesToSend[key] = inputValues[key] || defaultValues[key];
     });
 
-    const combinedURL =
-      (valuesToSend['0001'] || '') +
-      (valuesToSend['0002'] || '') +
-      (valuesToSend['0003'] || '');
-    console.log('✅ Final Combined URL:', combinedURL);
+    for (let i = 10; i <= 15; i++) {
+      const key = `00${i}`;
+      valuesToSend[key] = inputValues[key] || defaultValues[key];
+    }
 
     try {
-      for (const [characteristicKey, value] of Object.entries(valuesToSend)) {
-        const bufferValue = Buffer.from(value ?? '', 'utf-8');
-        const characteristic = characteristics.find(
-          c => c.characteristic === characteristicKey,
-        );
+      for (const [key, value] of Object.entries(valuesToSend)) {
+        const buffer = Buffer.from(value ?? '', 'utf-8');
+        const characteristic = characteristics.find(c => c.characteristic === key);
         const service = services.find(s => s.uuid === characteristic?.service);
-
-        if (!service || !characteristic) {
-          console.warn(
-            `Service or characteristic not found for key: ${characteristicKey}`,
-          );
-          continue;
-        }
-
-        console.log('📤 Writing:', {
-          key: characteristicKey,
-          value,
-          hex: bufferValue.toString('hex'),
-        });
+        if (!service || !characteristic) continue;
 
         let success = false;
         let attempts = 0;
-        const maxRetries = 3;
-
-        // Retry mechanism
-        while (!success && attempts < maxRetries) {
+        while (!success && attempts < 3) {
           try {
-            await onWrite(
-              characteristicKey,
-              connectedDevice,
-              service.uuid,
-              bufferValue,
-            );
-            console.log(
-              `✅ Wrote ${characteristicKey} on attempt ${attempts + 1}`,
-            );
+            await onWrite(key, connectedDevice, service.uuid, buffer);
             success = true;
-          } catch (err) {
-            console.error(
-              `❌ Failed to write ${characteristicKey} (Attempt ${
-                attempts + 1
-              }):`,
-              err,
-            );
+          } catch {
             attempts++;
-            await delay(1000); // short delay before retry
+            await delay(1000);
           }
         }
-
-        if (!success) {
-          console.error(
-            `❌ Giving up on writing ${characteristicKey} after ${maxRetries} attempts.`,
-          );
-        }
-
-        await delay(1000); // Shorter delay between writes
+        await delay(500);
       }
-    } catch (err) {
-      console.error('❌ General error during write process:', err);
+    } catch (e) {
+      console.error(e);
     } finally {
       setIsLoading(false);
       setInputValues({});
@@ -318,8 +175,37 @@ const DeviceList1 = ({
     }
   };
 
-  console.log('setQRCodeScanner', scannedCode);
-  console.log('inputValues', inputValues);
+  const renderItem = ({item}) => (
+    <View style={styles.deviceCard}>
+      <Text style={styles.deviceTitle}>{item.advertising.localName || 'Unknown'}</Text>
+      <Text style={styles.deviceText}>ID: {item.id}</Text>
+      <Text style={styles.deviceText}>RSSI: {item.rssi}</Text>
+
+      <TouchableOpacity
+        style={[
+          styles.connectButton,
+          {backgroundColor: connectedDevice === item.id ? NALCO_COLORS.danger : NALCO_COLORS.primary},
+        ]}
+        onPress={() => onConnect(item)}>
+        {isConnecting && connectedDevice === item.id ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>
+            {connectedDevice === item.id ? 'Disconnect' : 'Connect'}
+          </Text>
+        )}
+      </TouchableOpacity>
+
+      {connectedDevice === item.id && (
+        <TouchableOpacity
+          style={[styles.writeButton, {backgroundColor: NALCO_COLORS.secondary}]}
+          onPress={() => setModalVisible(true)}>
+          <Text style={styles.buttonText}>Write</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <>
       <FlatList
@@ -327,335 +213,150 @@ const DeviceList1 = ({
         keyExtractor={item => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No connectable devices found.</Text>
-        }
+        ListEmptyComponent={<Text style={styles.emptyText}>No connectable devices found.</Text>}
       />
 
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={!!readValue}
-        onRequestClose={() => setReadValue(null)}>
-        <View style={styles.modalView}>
-          <Text style={styles.modalText}>Read Value: {readValue}</Text>
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => setReadValue(null)}>
-            <Text style={styles.buttonText}>Close</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => {
-          setQRCodeScanner(false);
-
-          setModalVisible(false);
-        }}>
-        {QRCodeScanner == true ? (
-          <View style={styles.modalView}>
-            {QRCodeScanner && <QRSCANNER onScan={handleScan} />}
-          </View>
+      <Modal visible={modalVisible} animationType="slide">
+        {QRCodeScanner ? (
+          <QRSCANNER onScan={handleScan} />
         ) : (
-          <View style={styles.modalView}>
-            {/* button to open QR code scanner */}
-            {/* <TouchableOpacity
-              style={styles.qrCodeButton}
-              onPress={() => {
-                setQRCodeScanner(true);
-                // setModalVisible(false);
-              }}>
-              <Text style={styles.buttonText}>Open QR Code Scanner</Text>
-            </TouchableOpacity> */}
-            <Text style={styles.modalText}>Write Characteristic Values</Text>
+          <View style={styles.modalContainer}>
+            <ScrollView>
+              <Text style={styles.modalHeader}>NALCO Device Configuration</Text>
 
-            {/* TextInput for Characteristics 0001, 0002, 0003 */}
-            <Text style={styles.header}>URL</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter URL"
-              value={inputValues.url || ''}
-              onChangeText={handleTextInputChange}
-              maxLength={57}
-            />
+              <Text style={styles.label}>URL</Text>
+              <TextInput style={styles.input} value={inputValues.url || ''} onChangeText={handleTextInputChange} placeholder="Enter URL" />
 
-            <Text style={styles.header}>APN</Text>
+              <Text style={styles.label}>APN</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter APN"
+                value={(inputValues['0004'] || '') + (inputValues['0005'] || '')}
+                onChangeText={text => {
+                  setInputValues(prev => ({
+                    ...prev,
+                    '0004': text.slice(0, 19),
+                    '0005': text.slice(19, 38),
+                  }));
+                }}
+              />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter APN"
-              value={(inputValues['0004'] || '') + (inputValues['0005'] || '')}
-              onChangeText={text => {
-                let chunk1 = text.slice(0, 19);
-                let chunk2 = text.slice(19, 38);
+              <Text style={styles.label}>TOPIC</Text>
+              <TextInput style={styles.input} value={inputValues['0006'] || ''} onChangeText={t => setInputValues(p => ({...p, '0006': t}))} />
 
-                setInputValues(prev => ({
-                  ...prev,
-                  '0004': chunk1,
-                  '0005': chunk2,
-                }));
+              <Text style={styles.label}>Sleep Time (Min)</Text>
+              <DropDownPicker
+                open={charDropdownOpen}
+                value={writeValue}
+                items={[{label: '4', value: 4}, {label: '8', value: 8}, {label: '12', value: 12}, {label: '16', value: 16}]}
+                setOpen={setCharDropdownOpen}
+                onSelectItem={v => {
+                  setWriteValue(v.value);
+                  setInputValues(p => ({...p, '0007': v.value.toString()}));
+                }}
+                style={styles.dropdown}
+                dropDownContainerStyle={styles.dropdownList}
+              />
 
-                if (text.length > 38) {
-                  Alert.alert(
-                    'Error',
-                    'Combined APN exceeds maximum length of 38 bytes.',
-                  );
-                }
-              }}
-              maxLength={38}
-            />
-            <Text style={styles.header}>TOPIC</Text>
+              <Text style={styles.label}>PORT</Text>
+              <TextInput style={styles.input} keyboardType="numeric" value={inputValues['0008'] || ''} onChangeText={t => setInputValues(p => ({...p, '0008': t}))} />
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter TOPIC"
-              value={inputValues['0006'] || ''}
-              onChangeText={text => {
-                if (text.length <= 19) {
-                  setInputValues(prev => ({...prev, '0006': text}));
-                } else {
-                  Alert.alert(
-                    'Error',
-                    'TOPIC exceeds maximum length of 19 bytes.',
-                  );
-                }
-              }}
-              maxLength={19}
-            />
-            <Text style={styles.header}>Sleep Time(Min)</Text>
+              <Text style={styles.label}>Data Rate</Text>
+              <TextInput style={styles.input} keyboardType="numeric" value={inputValues['0009'] || ''} onChangeText={t => setInputValues(p => ({...p, '0009': t}))} />
 
-            <DropDownPicker
-              open={charDropdownOpen}
-              value={writeValue}
-              items={[
-                {label: '4', value: 4},
-                {label: '8', value: 8},
-                {label: '12', value: 12},
-                {label: '16', value: 16},
-              ]}
-              setOpen={setCharDropdownOpen}
-              onSelectItem={value => {
-                setWriteValue(value.value);
-                setInputValues(prev => ({
-                  ...prev,
-                  '0007': value.value.toString(),
-                }));
-              }}
-              style={{
-                zIndex: 3000,
-                marginBottom: 15,
-                backgroundColor: 'white',
-                width: '80%',
-                alignSelf: 'center',
-              }}
-              dropDownContainerStyle={{
-                backgroundColor: 'white',
-                borderColor: '#cccccc',
-                borderWidth: 1,
-                borderRadius: 8,
-                width: '80%',
-                alignSelf: 'center',
-              }}
-              placeholder="Select Sleep Time"
-            />
-            <Text style={styles.header}>PORT</Text>
+              {[10, 11, 12, 13, 14, 15].map(i => (
+                <View key={i}>
+                  <Text style={styles.label}>Phone Number {i - 9}</Text>
+                  <TextInput
+                    style={styles.input}
+                    keyboardType="phone-pad"
+                    value={inputValues[`00${i}`] || ''}
+                    onChangeText={t => setInputValues(p => ({...p, [`00${i}`]: t}))}
+                    placeholder="Enter phone number"
+                  />
+                </View>
+              ))}
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter Port"
-              keyboardType="numeric"
-              value={inputValues['0008'] || ''}
-              onChangeText={text =>
-                setInputValues(prev => ({...prev, '0008': text}))
-              }
-              maxLength={19}
-            />
-            <Text style={styles.header}>Date Rate</Text>
+              <TouchableOpacity style={styles.primaryButton} onPress={sendData} disabled={isLoading}>
+                <Text style={styles.primaryButtonText}>{isLoading ? 'Sending...' : 'Send Data'}</Text>
+              </TouchableOpacity>
 
-            <TextInput
-              style={styles.input}
-              placeholder="Enter Data Rate"
-              keyboardType="numeric"
-              value={inputValues['0009'] || ''}
-              onChangeText={text =>
-                setInputValues(prev => ({...prev, '0009': text}))
-              }
-              maxLength={19}
-            />
-
-            <TouchableOpacity
-              style={styles.sendButton}
-              disabled={isLoading}
-              onPress={sendData}>
-              <Text style={styles.buttonText}>
-                {isLoading ? 'Sending Data' : 'Send Data'}
-              </Text>
-            </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setModalVisible(false)}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </ScrollView>
           </View>
         )}
       </Modal>
 
-      <Modal transparent={true} animationType="fade" visible={isLoading}>
-        <View style={styles.modalOverlay}>
-          <ActivityIndicator size="large" color="#007AFF" />
+      {isLoading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={NALCO_COLORS.primary} />
         </View>
-      </Modal>
+      )}
     </>
   );
 };
 
 const styles = StyleSheet.create({
-  listContainer: {
-    padding: 10,
-  },
+  listContainer: {padding: 10, backgroundColor: NALCO_COLORS.background},
   deviceCard: {
-    backgroundColor: '#1f1f1f',
-    borderRadius: 8,
+    backgroundColor: NALCO_COLORS.card,
+    borderRadius: 12,
     padding: 15,
-    marginVertical: 10,
-    elevation: 3,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  deviceText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    marginBottom: 5,
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  connectButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 5,
-    flex: 1,
-    marginRight: 5,
-    alignItems: 'center',
-  },
-  detailsButton: {
-    backgroundColor: '#5856D6',
-    padding: 10,
-    borderRadius: 5,
-    flex: 1,
-    marginLeft: 5,
-    alignItems: 'center',
-  },
-  readButton: {
-    backgroundColor: '#28A745',
-    padding: 10,
-    borderRadius: 5,
-    flex: 1,
-    marginRight: 5,
-    alignItems: 'center',
-  },
-  writeButton: {
-    backgroundColor: '#DC3545',
-    padding: 10,
-    borderRadius: 5,
-    flex: 1,
-    marginLeft: 5,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  emptyText: {
-    color: 'black',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginTop: 20,
-    fontSize: 16,
-  },
-  modalView: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    // alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.8)',
-  },
-  modalText: {
-    color: 'white',
-    marginBottom: 15,
-    fontSize: 18,
-    alignSelf: 'center',
-  },
+  deviceTitle: {fontSize: 18, fontWeight: '600', color: NALCO_COLORS.primary},
+  deviceText: {color: NALCO_COLORS.text, marginTop: 4},
+  connectButton: {marginTop: 10, padding: 10, borderRadius: 6, alignItems: 'center'},
+  writeButton: {marginTop: 10, padding: 10, borderRadius: 6, alignItems: 'center'},
+  buttonText: {color: '#fff', fontWeight: 'bold'},
+  emptyText: {textAlign: 'center', color: NALCO_COLORS.text, marginTop: 20, fontSize: 16},
+  modalContainer: {flex: 1, backgroundColor: NALCO_COLORS.background, padding: 20},
+  modalHeader: {fontSize: 20, fontWeight: '700', color: NALCO_COLORS.primary, marginBottom: 20, textAlign: 'center'},
+  label: {color: NALCO_COLORS.primary, fontWeight: '500', marginBottom: 5, marginTop: 10},
   input: {
-    // height: 40,
-    borderColor: 'gray',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    marginBottom: 15,
-    width: '80%',
+    borderColor: NALCO_COLORS.border,
+    borderRadius: 6,
     paddingHorizontal: 10,
-    color: '#fff',
-    alignSelf: 'center',
+    paddingVertical: 8,
+    fontSize: 15,
+    color: NALCO_COLORS.text,
   },
-  closeButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 5,
+  dropdown: {
+    backgroundColor: '#fff',
+    borderColor: NALCO_COLORS.border,
+    marginBottom: 10,
+  },
+  dropdownList: {
+    backgroundColor: '#fff',
+    borderColor: NALCO_COLORS.border,
+  },
+  primaryButton: {
+    backgroundColor: NALCO_COLORS.primary,
+    padding: 12,
+    borderRadius: 6,
     alignItems: 'center',
-  },
-  characteristicItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 5,
-  },
-  characteristicText: {
-    color: '#ffffff',
-    fontSize: 14,
-    flex: 1,
-  },
-  sendButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 5,
     marginTop: 15,
+  },
+  primaryButtonText: {color: '#fff', fontWeight: 'bold'},
+  cancelButton: {marginTop: 10, alignItems: 'center'},
+  cancelText: {color: NALCO_COLORS.danger, fontWeight: 'bold'},
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
     alignItems: 'center',
-  },
-  dropdownContainer: {
-    zIndex: 999,
-    borderColor: '#cccccc',
-    borderWidth: 1,
-    width: '80%',
-    alignSelf: 'center',
-    justifyContent: 'center',
-    color: '#000',
-    marginBottom: 15,
-  },
-  qrCodeButton: {
-    backgroundColor: '#007AFF',
-    padding: 10,
-    borderRadius: 5,
-    marginBottom: 15,
-    marginTop: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '80%',
-    alignSelf: 'center',
-    marginBottom: 15,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: 'bold',
-    fontSize: 16,
-    alignSelf: 'center',
-  },
-  header: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: 'white',
-    justifyContent: 'center',
-    paddingLeft: 40,
+    backgroundColor: 'rgba(255,255,255,0.6)',
   },
 });
 

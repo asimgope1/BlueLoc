@@ -13,9 +13,9 @@ const Home = () => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1E90FF" />
+      <StatusBar barStyle="light-content" backgroundColor="#003366" />
 
-      <Text style={styles.title}>Welcome to the BlueLoc</Text>
+      <Text style={styles.title}>Welcome to NALCO BlueLoc</Text>
       <Text style={styles.subtitle}>Choose an action to get started</Text>
 
       <TouchableOpacity
@@ -36,39 +36,46 @@ const Home = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'black',
+    backgroundColor: '#F5F7FA', // Light background for contrast
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   title: {
     fontSize: 28,
-    fontWeight: '600',
-    color: '#1E90FF',
-    marginBottom: 10,
+    fontWeight: '700',
+    color: '#003366', // NALCO Deep Blue
+    marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     fontSize: 16,
-    color: 'white',
+    color: '#1A1A1A', // Dark text for readability
     marginBottom: 30,
+    textAlign: 'center',
   },
   button: {
-    backgroundColor: '#1E90FF',
+    backgroundColor: '#005EB8', // NALCO Bright Blue
     paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 12,
     width: '80%',
     alignItems: 'center',
     marginVertical: 10,
-    elevation: 3,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   otaButton: {
-    backgroundColor: '#28A745',
+    backgroundColor: '#FF6F00', // NALCO Orange accent for contrast
   },
   buttonText: {
-    color: '#fff',
+    color: '#FFFFFF',
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '600',
+    letterSpacing: 0.5,
   },
 });
 
