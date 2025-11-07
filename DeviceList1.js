@@ -252,9 +252,11 @@ const DeviceList1 = ({
     // --- Handle phone numbers (0010–0015)
     for (let i = 10; i <= 15; i++) {
       const key = `00${i}`;
+      const phone = inputValues[key]?.trim() || '';
       valuesToSend[key] =
-        isConnected && inputValues[key] ? inputValues[key] : defaultValues[key];
+        phone.startsWith('+') && phone.length > 3 ? phone : '';
     }
+    
   
     const combinedURL =
       (valuesToSend['0001'] || '') +
@@ -364,7 +366,7 @@ const DeviceList1 = ({
         visible={modalVisible}
         onRequestClose={() => {
           setQRCodeScanner(false);
-
+          setInputValues({}); 
           setModalVisible(false);
         }}>
         {QRCodeScanner == true ? (
@@ -590,7 +592,7 @@ const DeviceList1 = ({
 
       <Modal transparent={true} animationType="fade" visible={isLoading}>
         <View style={styles.modalOverlay}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <ActivityIndicator size="large" color="#A62C2B" />
         </View>
       </Modal>
     </>
@@ -687,7 +689,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   closeButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#A62C2B',
     padding: 10,
     borderRadius: 5,
     alignItems: 'center',
@@ -704,7 +706,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#A62C2B',
     padding: 10,
     width: '80%',
     alignSelf: 'center',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -21,17 +21,18 @@ import {
 import DeviceList1 from './DeviceList1';
 import RadarAnimation from './RadarAnimation';
 import BleManager from 'react-native-ble-manager';
-import { Buffer } from 'buffer';
+import {Buffer} from 'buffer';
+import {useDispatch, useSelector} from 'react-redux';
+import {
+  connectDevice,
+  disconnectDevice,
+  setServices,
+  setCharacteristics,
+  startConnecting,
+  stopConnecting,
+} from './bluetoothSlice';
 
-const NALCO_COLORS = {
-  primary: '#A62C2B',     // NALCO Red
-  secondary: '#4E4E4E',   // Steel Gray
-  accent: '#E5B73B',      // Gold
-  background: '#F8F8F8',  // Light background
-  white: '#FFFFFF',
-};
-
-const BluetoothScanner = ({ navigation }) => {
+const BluetoothScanner = ({navigation}) => {
   const [scanning, setScanning] = useState(false);
   const [isSearching, setIsSearching] = useState(true);
   const [devices, setDevices] = useState([]);
@@ -39,43 +40,66 @@ const BluetoothScanner = ({ navigation }) => {
   const [services, setServices] = useState([]);
   const [characteristics, setCharacteristics] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null);
+  const [inputValue, setInputValue] = useState(''); // Input value for writing
+  const [selectedCharacteristic, setSelectedCharacteristic] = useState(null); // Selected characteristic for writing
 
-  const { width: WIDTH } = Dimensions.get('window');
+  const {width: WIDTH} = Dimensions.get('window');
 
   useEffect(() => {
     const backAction = () => {
       Alert.alert('Exit Writing', 'Are you sure you want to exit?', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Yes', onPress: () => navigation.goBack() },
+        {
+          text: 'Cancel',
+          onPress: () => null,
+          style: 'cancel',
+        },
+        {
+          text: 'Yes',
+          onPress: () => navigation.goBack(),
+        },
       ]);
-      return true;
+      return true; // prevent default back behavior
     };
+
     const backHandler = BackHandler.addEventListener(
       'hardwareBackPress',
       backAction,
     );
-    return () => backHandler.remove();
+
+    return () => backHandler.remove(); // cleanup
   }, []);
 
   useEffect(() => {
     const enableBluetooth = async () => {
       try {
         await BleManager.enableBluetooth();
+        console.log('Bluetooth is enabled');
       } catch (error) {
-        Alert.alert('Bluetooth Required', 'Please enable Bluetooth to use this app.');
+        Alert.alert(
+          'Bluetooth Required',
+          'Please enable Bluetooth to use this app.',
+        );
       }
     };
 
-    BleManager.start({ showAlert: false });
+    BleManager.start({showAlert: false});
     requestPermissions();
-    enableBluetooth();
+    enableBluetooth(); // Prompt to enable Bluetooth
 
     const bleManagerEmitter = new NativeEventEmitter(NativeModules.BleManager);
-    const discoverListener = bleManagerEmitter.addListener('BleManagerDiscoverPeripheral', handleDiscoverPeripheral);
-    const stopListener = bleManagerEmitter.addListener('BleManagerStopScan', handleStopScan);
-    const disconnectListener = bleManagerEmitter.addListener('BleManagerDisconnectPeripheral', handleDisconnectedPeripheral);
+
+    const discoverListener = bleManagerEmitter.addListener(
+      'BleManagerDiscoverPeripheral',
+      handleDiscoverPeripheral,
+    );
+    const stopListener = bleManagerEmitter.addListener(
+      'BleManagerStopScan',
+      handleStopScan,
+    );
+    const disconnectListener = bleManagerEmitter.addListener(
+      'BleManagerDisconnectPeripheral',
+      handleDisconnectedPeripheral,
+    );
 
     return () => {
       discoverListener.remove();
@@ -86,29 +110,43 @@ const BluetoothScanner = ({ navigation }) => {
 
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
-      await PermissionsAndroid.requestMultiple([
+      const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]);
+      if (
+        Object.values(granted).some(
+          permission => permission !== PermissionsAndroid.RESULTS.GRANTED,
+        )
+      ) {
+        // Alert.alert(
+        //   'Permission Required',
+        //   'Please grant all permissions to use Bluetooth features.',
+        // );
+      }
     }
   };
 
-  const handleDiscoverPeripheral = (peripheral) => {
+  const handleDiscoverPeripheral = peripheral => {
     if (peripheral && peripheral.name === 'EPSUMLABS') {
-      setDevices((prev) =>
-        prev.find((d) => d.id === peripheral.id) ? prev : [...prev, peripheral],
-      );
+      setDevices(prevDevices => {
+        if (!prevDevices.find(d => d.id === peripheral.id)) {
+          return [...prevDevices, peripheral];
+        }
+        return prevDevices;
+      });
     }
   };
 
   const handleStopScan = () => {
+    console.log('Scan stopped');
     setScanning(false);
     setIsSearching(false);
   };
 
-  const handleDisconnectedPeripheral = (data) => {
-    Alert.alert('Disconnected', `Device ${data.peripheral} disconnected`);
+  const handleDisconnectedPeripheral = data => {
+    Alert.alert('Disconnected', `Disconnected from device ${data.peripheral}`);
     resetConnection();
   };
 
@@ -119,10 +157,13 @@ const BluetoothScanner = ({ navigation }) => {
   };
 
   const scanAndConnect = useCallback(() => {
+    console.log('Starting scan');
     setIsSearching(true);
     setScanning(true);
     setDevices([]);
-    BleManager.scan([], 15, true).catch(console.warn);
+    BleManager.scan([], 15, true).catch(error =>
+      console.warn('Error during scan:', error),
+    );
   }, []);
 
   useEffect(() => {
@@ -130,7 +171,7 @@ const BluetoothScanner = ({ navigation }) => {
   }, [scanAndConnect]);
 
   const connectToDevice = useCallback(
-    async (device) => {
+    async device => {
       const deviceId = device.id;
       setIsLoading(true);
       try {
@@ -141,10 +182,13 @@ const BluetoothScanner = ({ navigation }) => {
           await BleManager.connect(deviceId);
           setConnectedDevice(deviceId);
           fetchServices(deviceId);
-          Alert.alert('Connected', `Connected to ${deviceId}`);
+          Alert.alert(
+            'Connected',
+            `Successfully connected to device ${deviceId}`,
+          );
         }
       } catch (error) {
-        Alert.alert('Error', 'Failed to connect.');
+        Alert.alert('Error', 'Failed to connect to device.');
       } finally {
         setIsLoading(false);
       }
@@ -152,62 +196,95 @@ const BluetoothScanner = ({ navigation }) => {
     [connectedDevice],
   );
 
-  const fetchServices = useCallback(async (deviceId) => {
+  const fetchServices = useCallback(async deviceId => {
     try {
-      const data = await BleManager.retrieveServices(deviceId);
-      const chars = data.characteristics.filter(
-        (c) => c.service !== '1800' && c.service !== '1801',
+      const servicesData = await BleManager.retrieveServices(deviceId);
+      const filteredCharacteristics = servicesData.characteristics.filter(
+        char => char.service !== '1800' && char.service !== '1801',
       );
-      setServices(data.services);
-      setCharacteristics(chars);
-    } catch (e) {
-      console.warn('Service fetch error:', e);
+      console.log('Services:', servicesData.services);
+      console.log('Characteristics:', filteredCharacteristics);
+      setServices(servicesData.services);
+      setCharacteristics(filteredCharacteristics);
+    } catch (error) {
+      console.warn('Error fetching services:', error);
     }
   }, []);
 
   const readCharacteristic = async (serviceUUID, characteristicUUID) => {
     try {
-      const readData = await BleManager.read(connectedDevice, serviceUUID, characteristicUUID);
+      const readData = await BleManager.read(
+        connectedDevice,
+        serviceUUID,
+        characteristicUUID,
+      );
       const buffer = Buffer.from(readData);
-      const value = buffer.toString('utf-8');
-      console.log('Read:', value);
-      return value;
-    } catch (e) {
+      const decodedValue = buffer.toString('utf-8');
+      console.log('Read value:', decodedValue);
+      return decodedValue;
+    } catch (error) {
+      console.error('Failed to read characteristic:', error);
       Alert.alert('Error', 'Failed to read characteristic.');
     }
   };
 
-  const writeCharacteristic = useCallback(async (char, device, service, value) => {
-    if (!char || !value || !device) {
-      Alert.alert('Error', 'Missing parameters.');
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const bytes = Array.from(value).map((ch) => ch.charCodeAt(0));
-      await BleManager.writeWithoutResponse(device, service, char, bytes, 512);
-    } catch (e) {
-      Alert.alert('Error', `Write failed: ${e.message}`);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+  const writeCharacteristic = useCallback(
+    async (selectedCharacteristic, connectedDevice, service, inputValue) => {
+      console.log('Attempting to write characteristic');
+      console.log('characteristicUUID:', selectedCharacteristic);
+      console.log('connectedDevice:', connectedDevice);
+      console.log('inputValue:', inputValue);
+      if (!selectedCharacteristic || !inputValue || !connectedDevice) {
+        Alert.alert(
+          'Error',
+          'No characteristic selected or value not provided.',
+        );
+        return;
+      }
+      setIsLoading(true);
 
+      try {
+        const byteArray = textStringToAsciiArray(inputValue.toString());
+        await BleManager.writeWithoutResponse(
+          connectedDevice,
+          service,
+          selectedCharacteristic,
+          byteArray,
+          512,
+        );
+        setIsLoading(false);
+        // Alert.alert('Success', 'Value written successfully');
+      } catch (error) {
+        setIsLoading(false);
+        console.warn('Error writing characteristic:', error);
+        Alert.alert('Error', `Failed to write value: ${error.message}`);
+      }
+    },
+    [connectedDevice, characteristics],
+  );
+
+  const textStringToAsciiArray = str => {
+    return Array.from(str).map(char => char.charCodeAt(0));
+  };
+
+  console.log('sacn devices', devices[0]);
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={NALCO_COLORS.primary} />
+      <StatusBar barStyle="light-content" backgroundColor="#A62C2B" />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoidingView}>
         <ScrollView contentContainerStyle={styles.scrollViewContent}>
           {isSearching ? (
-            <RadarAnimation color={NALCO_COLORS.primary} />
+            <RadarAnimation />
           ) : (
             <>
               <View style={styles.header}>
-                <Text style={styles.headerTitle}>NALCO Bluelocate</Text>
+                <Text style={styles.headerTitle}>Bluelocate</Text>
                 {!isSearching && (
-                  <TouchableOpacity onPress={scanAndConnect} style={styles.rescanButton}>
+                  <TouchableOpacity
+                    onPress={scanAndConnect}
+                    style={styles.rescanButton}>
                     <Text style={styles.rescanText}>Rescan</Text>
                   </TouchableOpacity>
                 )}
@@ -216,7 +293,9 @@ const BluetoothScanner = ({ navigation }) => {
               <DeviceList1
                 devices={devices}
                 onConnect={connectToDevice}
-                onViewDetails={(device) => Alert.alert('Device Details', JSON.stringify(device))}
+                onViewDetails={device =>
+                  Alert.alert('Device Details', JSON.stringify(device))
+                }
                 onRead={readCharacteristic}
                 onWrite={writeCharacteristic}
                 isConnecting={isLoading}
@@ -226,11 +305,14 @@ const BluetoothScanner = ({ navigation }) => {
                 setSelectedCharacteristic={setSelectedCharacteristic}
               />
 
-           
+       
 
-              <Modal transparent animationType="fade" visible={isLoading}>
+              <Modal
+                transparent={true}
+                animationType="fade"
+                visible={isLoading}>
                 <View style={styles.modalOverlay}>
-                  <ActivityIndicator size="large" color={NALCO_COLORS.accent} />
+                  <ActivityIndicator size="large" color="#A62C2B" />
                 </View>
               </Modal>
             </>
@@ -244,7 +326,7 @@ const BluetoothScanner = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: NALCO_COLORS.background,
+    backgroundColor: '#f0f0f0',
   },
   keyboardAvoidingView: {
     flex: 1,
@@ -259,37 +341,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: NALCO_COLORS.primary,
-    elevation: 4,
+    backgroundColor: '#A62C2B',
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: NALCO_COLORS.white,
-    letterSpacing: 0.5,
+    color: '#fff',
   },
   rescanButton: {
-    backgroundColor: NALCO_COLORS.accent,
-    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderRadius: 10,
     paddingHorizontal: 15,
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
   rescanText: {
-    color: NALCO_COLORS.primary,
+    color: '#007AFF',
     fontWeight: 'bold',
   },
   input: {
-    backgroundColor: NALCO_COLORS.white,
+    backgroundColor: '#fff',
     borderRadius: 8,
-    margin: 12,
+    margin: 10,
     padding: 15,
     fontSize: 16,
-    borderColor: NALCO_COLORS.primary,
-    borderWidth: 1,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
